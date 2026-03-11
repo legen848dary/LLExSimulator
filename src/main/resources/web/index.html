@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>LLExSimulator — FIX Exchange Simulator</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#f0fdf4', 100:'#dcfce7', 500:'#22c55e', 600:'#16a34a', 700:'#15803d', 900:'#14532d' },
+            dark:  { 900:'#0a0f1e', 800:'#0f172a', 700:'#1e293b', 600:'#334155' }
+          },
+          fontFamily: { mono: ['JetBrains Mono','monospace'] }
+        }
+      }
+    }
+  </script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .flash-fill   { animation: flashGreen 0.6s ease-out; }
+    .flash-reject { animation: flashRed   0.6s ease-out; }
+    @keyframes flashGreen { 0%{background:#16a34a33} 100%{background:transparent} }
+    @keyframes flashRed   { 0%{background:#dc262633} 100%{background:transparent} }
+    ::-webkit-scrollbar { width:6px } ::-webkit-scrollbar-track { background:#1e293b }
+    ::-webkit-scrollbar-thumb { background:#334155; border-radius:3px }
+  </style>
+</head>
+<body class="bg-dark-900 text-slate-100 h-full min-h-screen">
+  <div id="app"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
+

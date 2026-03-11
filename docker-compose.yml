@@ -1,0 +1,55 @@
+services:
+  llexsimulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llexsimulator:1.0-SNAPSHOT
+    container_name: llexsimulator
+    ports:
+      - "8080:8080"    # Vert.x Web UI + REST API
+      - "9880:9880"    # FIX acceptor — FIX 4.2 / 4.4 / 5.0
+    volumes:
+      - ./config:/app/config:ro             # override simulator.properties without rebuild
+      - llexsim-artio-logs:/app/logs        # FIX session logs
+    environment:
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms1g -Xmx1g
+        -XX:+AlwaysPreTouch
+        -XX:+DisableExplicitGC
+        -XX:+PerfDisableSharedMem
+        -Daeron.dir=/dev/shm/aeron-llexsim
+        -Daeron.threading.mode=DEDICATED
+        -Daeron.sender.idle.strategy=noop
+        -Daeron.receiver.idle.strategy=noop
+        -Dagrona.disable.bounds.checks=true
+        --add-opens java.base/sun.nio.ch=ALL-UNNAMED
+        --add-opens java.base/java.nio=ALL-UNNAMED
+        --add-opens java.base/java.lang=ALL-UNNAMED
+    # Aeron IPC requires /dev/shm to be large enough for memory-mapped files
+    shm_size: "512mb"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    # CPU affinity — pin to first 4 cores for deterministic latency
+    # Adjust "0-3" for your host topology
+    cpuset: "0-3"
+    mem_limit: 2g
+    mem_reservation: 1g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  llexsim-artio-logs:
+    driver: local
+

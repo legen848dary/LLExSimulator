@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sbe:messageSchema
+    xmlns:sbe="http://fixprotocol.io/2016/sbe"
+    package="com.llexsimulator.sbe"
+    id="99"
+    version="0"
+    semanticVersion="1.0"
+    description="LLExSimulator Internal Message Protocol"
+    byteOrder="littleEndian">
+
+  <types>
+
+    <!-- Standard SBE message header — required by runtime framing -->
+    <composite name="messageHeader">
+      <type name="blockLength" primitiveType="uint16"/>
+      <type name="templateId"  primitiveType="uint16"/>
+      <type name="schemaId"    primitiveType="uint16"/>
+      <type name="version"     primitiveType="uint16"/>
+    </composite>
+
+    <!-- Repeating-group framing (not used in these messages but required by spec) -->
+    <composite name="groupSizeEncoding">
+      <type name="blockLength" primitiveType="uint16"/>
+      <type name="numInGroup"  primitiveType="uint8"/>
+    </composite>
+
+    <!-- Variable-length data framing (required by spec) -->
+    <composite name="varDataEncoding">
+      <type name="length"  primitiveType="uint32" maxValue="1073741824"/>
+      <type name="varData" primitiveType="uint8"  length="0" characterEncoding="UTF-8"/>
+    </composite>
+
+    <!-- ── Enumerations ──────────────────────────────────────────────────────── -->
+
+    <enum name="OrderSide" encodingType="uint8">
+      <validValue name="BUY">1</validValue>
+      <validValue name="SELL">2</validValue>
+      <validValue name="SELL_SHORT">5</validValue>
+    </enum>
+
+    <enum name="OrderType" encodingType="uint8">
+      <validValue name="MARKET">1</validValue>
+      <validValue name="LIMIT">2</validValue>
+      <validValue name="STOP">3</validValue>
+      <validValue name="STOP_LIMIT">4</validValue>
+      <validValue name="MARKET_ON_CLOSE">5</validValue>
+    </enum>
+
+    <enum name="TimeInForce" encodingType="uint8">
+      <validValue name="DAY">0</validValue>
+      <validValue name="GTC">1</validValue>
+      <validValue name="AT_OPEN">2</validValue>
+      <validValue name="IOC">3</validValue>
+      <validValue name="FOK">4</validValue>
+      <validValue name="GTX">5</validValue>
+      <validValue name="GTD">6</validValue>
+      <validValue name="AT_CLOSE">7</validValue>
+    </enum>
+
+    <enum name="ExecType" encodingType="uint8">
+      <validValue name="NEW">0</validValue>
+      <validValue name="PARTIAL_FILL">1</validValue>
+      <validValue name="FILL">2</validValue>
+      <validValue name="DONE_FOR_DAY">3</validValue>
+      <validValue name="CANCELED">4</validValue>
+      <validValue name="REPLACED">5</validValue>
+      <validValue name="REJECTED">8</validValue>
+      <validValue name="TRADE">15</validValue>
+    </enum>
+
+    <enum name="OrdStatus" encodingType="uint8">
+      <validValue name="NEW">0</validValue>
+      <validValue name="PARTIALLY_FILLED">1</validValue>
+      <validValue name="FILLED">2</validValue>
+      <validValue name="DONE_FOR_DAY">3</validValue>
+      <validValue name="CANCELED">4</validValue>
+      <validValue name="REJECTED">8</validValue>
+      <validValue name="PENDING_NEW">10</validValue>
+    </enum>
+
+    <enum name="FillBehaviorType" encodingType="uint8">
+      <validValue name="IMMEDIATE_FULL_FILL">0</validValue>
+      <validValue name="PARTIAL_FILL">1</validValue>
+      <validValue name="DELAYED_FILL">2</validValue>
+      <validValue name="REJECT">3</validValue>
+      <validValue name="PARTIAL_THEN_CANCEL">4</validValue>
+      <validValue name="PRICE_IMPROVEMENT">5</validValue>
+      <validValue name="FILL_AT_ARRIVAL_PRICE">6</validValue>
+      <validValue name="RANDOM_FILL">7</validValue>
+      <validValue name="NO_FILL_IOC_CANCEL">8</validValue>
+    </enum>
+
+    <enum name="RejectReason" encodingType="uint8">
+      <validValue name="UNKNOWN_SYMBOL">0</validValue>
+      <validValue name="HALTED">2</validValue>
+      <validValue name="INVALID_PRICE">5</validValue>
+      <validValue name="NOT_AUTHORIZED">6</validValue>
+      <validValue name="STALE_ORDER">8</validValue>
+      <validValue name="SIMULATOR_REJECT">99</validValue>
+    </enum>
+
+    <enum name="FixVersion" encodingType="uint8">
+      <validValue name="FIX42">1</validValue>
+      <validValue name="FIX44">2</validValue>
+      <validValue name="FIX50">3</validValue>
+      <validValue name="FIX50SP2">4</validValue>
+      <validValue name="FIXT11">5</validValue>
+    </enum>
+
+    <!-- ── Fixed-length string types — no heap String allocation ─────────────── -->
+    <type name="ClOrdIdType"  primitiveType="char" length="36" characterEncoding="US-ASCII"/>
+    <type name="OrderIdType"  primitiveType="char" length="36" characterEncoding="US-ASCII"/>
+    <type name="ExecIdType"   primitiveType="char" length="36" characterEncoding="US-ASCII"/>
+    <type name="SymbolType"   primitiveType="char" length="16" characterEncoding="US-ASCII"/>
+    <type name="CompIdType"   primitiveType="char" length="16" characterEncoding="US-ASCII"/>
+
+  </types>
+
+  <!--
+    Message 1 — NewOrderSingle (internal representation of FIX 35=D)
+    Total field bytes: 8+8+8+36+16+1+1+1+8+8+8+8+1+16+16 = 144
+  -->
+  <message name="NewOrderSingle" id="1" description="Internal representation of FIX NewOrderSingle">
+    <field name="correlationId"       id="1"  type="int64"      description="Monotonic counter assigned at ingress"/>
+    <field name="sessionConnectionId" id="2"  type="int64"      description="Numeric session key into OrderSessionRegistry"/>
+    <field name="arrivalTimeNs"       id="3"  type="int64"      description="System.nanoTime() at FIX message receipt"/>
+    <field name="clOrdId"             id="4"  type="ClOrdIdType"/>
+    <field name="symbol"              id="5"  type="SymbolType"/>
+    <field name="side"                id="6"  type="OrderSide"/>
+    <field name="orderType"           id="7"  type="OrderType"/>
+    <field name="timeInForce"         id="8"  type="TimeInForce"/>
+    <field name="orderQty"            id="9"  type="int64"      description="Quantity × 10^4"/>
+    <field name="price"               id="10" type="int64"      description="Limit price × 10^8; 0 for market orders"/>
+    <field name="stopPx"              id="11" type="int64"      description="Stop price × 10^8; 0 if unused"/>
+    <field name="transactTimeNs"      id="12" type="int64"      description="FIX TransactTime as nanos since epoch"/>
+    <field name="fixVersion"          id="13" type="FixVersion"/>
+    <field name="senderCompId"        id="14" type="CompIdType"/>
+    <field name="targetCompId"        id="15" type="CompIdType"/>
+  </message>
+
+  <!--
+    Message 2 — ExecutionReport (internal; Artio/QuickFIX wire encoding is separate)
+    Total field bytes: 8+8+36+36+36+16+1+1+1+1+8+8+8+8+8+8+8+8+8+1+1+8 = 226
+  -->
+  <message name="ExecutionReport" id="2" description="Internal execution report">
+    <field name="correlationId"       id="1"  type="int64"/>
+    <field name="sessionConnectionId" id="2"  type="int64"/>
+    <field name="orderId"             id="3"  type="OrderIdType"/>
+    <field name="clOrdId"             id="4"  type="ClOrdIdType"/>
+    <field name="execId"              id="5"  type="ExecIdType"/>
+    <field name="symbol"              id="6"  type="SymbolType"/>
+    <field name="side"                id="7"  type="OrderSide"/>
+    <field name="orderType"           id="8"  type="OrderType"/>
+    <field name="execType"            id="9"  type="ExecType"/>
+    <field name="ordStatus"           id="10" type="OrdStatus"/>
+    <field name="orderQty"            id="11" type="int64"/>
+    <field name="price"               id="12" type="int64"/>
+    <field name="lastPx"              id="13" type="int64"      description="Fill price × 10^8"/>
+    <field name="lastQty"             id="14" type="int64"      description="Fill qty × 10^4"/>
+    <field name="cumQty"              id="15" type="int64"      description="Total filled qty × 10^4"/>
+    <field name="leavesQty"           id="16" type="int64"      description="Remaining qty × 10^4"/>
+    <field name="avgPx"               id="17" type="int64"      description="VWAP × 10^8"/>
+    <field name="transactTimeNs"      id="18" type="int64"/>
+    <field name="sendingTimeNs"       id="19" type="int64"/>
+    <field name="rejectReason"        id="20" type="RejectReason"/>
+    <field name="fillBehavior"        id="21" type="FillBehaviorType"/>
+    <field name="endToEndLatencyNs"   id="22" type="int64"      description="sendingTimeNs - arrivalTimeNs"/>
+  </message>
+
+  <!--
+    Message 3 — OrderCancelRequest (internal representation of FIX 35=F)
+    Total field bytes: 8+8+36+36+16+1+8+1 = 114
+  -->
+  <message name="OrderCancelRequest" id="3" description="Internal cancel request">
+    <field name="correlationId"       id="1" type="int64"/>
+    <field name="sessionConnectionId" id="2" type="int64"/>
+    <field name="origClOrdId"         id="3" type="ClOrdIdType"/>
+    <field name="clOrdId"             id="4" type="ClOrdIdType"/>
+    <field name="symbol"              id="5" type="SymbolType"/>
+    <field name="side"                id="6" type="OrderSide"/>
+    <field name="transactTimeNs"      id="7" type="int64"/>
+    <field name="fixVersion"          id="8" type="FixVersion"/>
+  </message>
+
+  <!--
+    Message 4 — FillInstruction (written by FillStrategyHandler; read by ExecutionReportHandler)
+    Total field bytes: 8+1+4+1+8+8+1+4+4+8+8 = 55
+  -->
+  <message name="FillInstruction" id="4" description="Fill strategy directive">
+    <field name="correlationId"    id="1"  type="int64"/>
+    <field name="fillBehavior"     id="2"  type="FillBehaviorType"/>
+    <field name="fillPctBps"       id="3"  type="int32"  description="Fill % in basis points (10000 = 100%)"/>
+    <field name="numPartialFills"  id="4"  type="uint8"  description="Number of partial fill legs to emit"/>
+    <field name="delayNs"          id="5"  type="int64"  description="Simulated delay before sending exec report"/>
+    <field name="fillPrice"        id="6"  type="int64"  description="Override fill price × 10^8; 0 = use order price"/>
+    <field name="rejectReasonCode" id="7"  type="RejectReason"/>
+    <field name="randomMinQtyPct"  id="8"  type="int32"  description="Basis points lower bound for random qty"/>
+    <field name="randomMaxQtyPct"  id="9"  type="int32"  description="Basis points upper bound for random qty"/>
+    <field name="randomMinDelayNs" id="10" type="int64"/>
+    <field name="randomMaxDelayNs" id="11" type="int64"/>
+  </message>
+
+  <!--
+    Message 5 — MetricsSnapshot (published via Aeron IPC to Vert.x MetricsSubscriber every N events)
+    Total field bytes: 10 × int64 = 80
+  -->
+  <message name="MetricsSnapshot" id="5" description="Real-time metrics snapshot">
+    <field name="snapshotTimeNs"        id="1"  type="int64"/>
+    <field name="ordersReceivedCount"   id="2"  type="int64"/>
+    <field name="executionReportsSent"  id="3"  type="int64"/>
+    <field name="fillsCount"            id="4"  type="int64"/>
+    <field name="rejectsCount"          id="5"  type="int64"/>
+    <field name="p50LatencyNs"          id="6"  type="int64"/>
+    <field name="p99LatencyNs"          id="7"  type="int64"/>
+    <field name="p999LatencyNs"         id="8"  type="int64"/>
+    <field name="maxLatencyNs"          id="9"  type="int64"/>
+    <field name="throughputPerSec"      id="10" type="int64"/>
+  </message>
+
+</sbe:messageSchema>
+

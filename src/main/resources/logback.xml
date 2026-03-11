@@ -1,0 +1,49 @@
+<configuration>
+
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!--
+    Async appender: neverBlock=true prevents the hot path from blocking on logging.
+    immediateFlush=false on the underlying file appender reduces I/O syscalls.
+  -->
+  <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+    <queueSize>512</queueSize>
+    <neverBlock>true</neverBlock>
+    <discardingThreshold>0</discardingThreshold>
+    <appender-ref ref="FILE"/>
+  </appender>
+
+  <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>logs/llexsimulator.log</file>
+    <immediateFlush>false</immediateFlush>
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>logs/llexsimulator.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>7</maxHistory>
+    </rollingPolicy>
+    <encoder>
+      <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Keep QuickFIX/J noise at WARN; it's chatty -->
+  <logger name="quickfixj" level="WARN"/>
+  <logger name="org.quickfixj" level="WARN"/>
+
+  <!-- Aeron/Agrona internal logs are verbose; keep at WARN -->
+  <logger name="io.aeron" level="WARN"/>
+  <logger name="org.agrona" level="WARN"/>
+
+  <!-- Application logs at INFO -->
+  <logger name="com.llexsimulator" level="INFO"/>
+
+  <root level="WARN">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="ASYNC_FILE"/>
+  </root>
+
+</configuration>
+
