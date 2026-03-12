@@ -517,7 +517,7 @@ Open **http://localhost:8080** in your browser.
 | Panel | Description |
 |---|---|
 | **Stats Cards** | Live throughput/sec, p99 latency, fill rate %, reject rate % |
-| **p99 Latency Chart** | Rolling 60-point line chart, updated per metrics snapshot |
+| **p99 Latency Chart** | Rolling 60-point line chart, with selectable dashboard refresh cadence: 1 / 5 / 10 / 30 / 60 seconds |
 | **Fill Profile Panel** | Select, create, update, and activate fill-behavior profiles |
 | **Order Flow Table** | Last 100 orders with flash-on-arrival highlighting (green=fill, red=reject) |
 | **FIX Sessions** | Active sessions with disconnect button |

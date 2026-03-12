@@ -17,6 +17,8 @@ const REJECT_REASONS = [
   'SIMULATOR_REJECT','UNKNOWN_SYMBOL','HALTED','INVALID_PRICE','NOT_AUTHORIZED','STALE_ORDER'
 ]
 
+const METRICS_REFRESH_OPTIONS = [1, 5, 10, 30, 60]
+
 // ── Vue App ────────────────────────────────────────────────────────────────────
 createApp({
   template: `
@@ -172,8 +174,25 @@ createApp({
         <!-- Latency Chart -->
         <div class="bg-dark-800 rounded-xl border border-dark-600 p-5">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="font-semibold text-white text-sm">p99 Latency History</h2>
-            <span class="text-xs text-slate-400 font-mono">last 60 snapshots</span>
+            <div>
+              <h2 class="font-semibold text-white text-sm">p99 Latency History</h2>
+              <p class="text-xs text-slate-500 mt-1">last 60 dashboard refreshes</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="flex flex-col items-end">
+                <label class="text-xs text-slate-400 mb-1">Metrics refresh</label>
+                <select v-model.number="selectedRefreshSeconds"
+                        @change="updateMetricsRefreshInterval"
+                        class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500">
+                  <option v-for="seconds in metricsRefreshOptions" :key="seconds" :value="seconds">
+                    {{ seconds }} second{{ seconds === 1 ? '' : 's' }}
+                  </option>
+                </select>
+              </div>
+              <span class="text-xs text-slate-400 font-mono text-right min-w-[7rem]">
+                applied every {{ selectedRefreshSeconds }}s
+              </span>
+            </div>
           </div>
           <canvas ref="latencyChart" height="80"></canvas>
         </div>
@@ -243,10 +262,15 @@ createApp({
 
     const fillRate   = ref('0.0')
     const rejectRate = ref('0.0')
+    const selectedRefreshSeconds = ref(1)
+    const metricsRefreshOptions = METRICS_REFRESH_OPTIONS
 
     const latencyChart = ref(null)
     let   chart        = null
     const latencyHistory = { labels: [], p99: [] }
+    let metricsRefreshTimer = null
+    let pollTimer = null
+    let latestMetricsSnapshot = null
 
     // ── Form state ────────────────────────────────────────────────────────────
     const form = reactive({
@@ -286,6 +310,12 @@ createApp({
     }
 
     function handleMetrics(m) {
+      latestMetricsSnapshot = m
+    }
+
+    function applyMetricsSnapshot(m) {
+      if (!m) return
+
       metrics.throughputPerSec = m.throughputPerSec
       metrics.p50Us  = m.p50Us;   metrics.p99Us  = m.p99Us
       metrics.p999Us = m.p999Us;  metrics.maxUs  = m.maxUs
@@ -306,6 +336,18 @@ createApp({
         chart.data.datasets[0].data = latencyHistory.p99
         chart.update('none') // 'none' = no animation, zero overhead
       }
+    }
+
+    function flushLatestMetrics(force = false) {
+      if (!latestMetricsSnapshot) return
+      if (!force && !wsConnected.value) return
+      applyMetricsSnapshot(latestMetricsSnapshot)
+    }
+
+    function updateMetricsRefreshInterval() {
+      if (metricsRefreshTimer) clearInterval(metricsRefreshTimer)
+      metricsRefreshTimer = setInterval(() => flushLatestMetrics(), selectedRefreshSeconds.value * 1000)
+      flushLatestMetrics(true)
     }
 
     function handleOrder(o) {
@@ -377,7 +419,7 @@ createApp({
       await fetchStats()
 
       // Poll sessions every 5 s
-      const pollTimer = setInterval(fetchSessions, 5000)
+      pollTimer = setInterval(fetchSessions, 5000)
 
       // Build Chart.js latency chart
       await nextTick()
@@ -406,19 +448,24 @@ createApp({
       }
 
       connectWs()
+      updateMetricsRefreshInterval()
 
-      onUnmounted(() => {
-        clearInterval(pollTimer)
-        if (ws) ws.close()
-        if (chart) chart.destroy()
-      })
+    })
+
+    onUnmounted(() => {
+      if (pollTimer) clearInterval(pollTimer)
+      if (metricsRefreshTimer) clearInterval(metricsRefreshTimer)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (ws) ws.close()
+      if (chart) chart.destroy()
     })
 
     return {
       wsConnected, activeProfile, profiles, selectedProfile, sessions,
       orders, metrics, fillRate, rejectRate, form, behaviorTypes, rejectReasons,
       showFillPct, showDelay, showReject, showRandom, showPriceImprovement,
-      latencyChart, activateProfile, saveAndActivate, disconnectSession, execTypeBadge
+      latencyChart, selectedRefreshSeconds, metricsRefreshOptions, updateMetricsRefreshInterval,
+      activateProfile, saveAndActivate, disconnectSession, execTypeBadge
     }
   }
 }).mount('#app')
