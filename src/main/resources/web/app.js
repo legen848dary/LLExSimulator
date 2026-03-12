@@ -41,6 +41,25 @@ createApp({
 
     <main class="p-6 grid grid-cols-12 gap-6">
 
+      <!-- ── Metrics Toolbar ─────────────────────────────────────────────── -->
+      <div class="col-span-12 bg-dark-800 rounded-xl border border-dark-600 px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 class="font-semibold text-white text-sm">Metrics Dashboard</h2>
+          <p class="text-xs text-slate-400 mt-1">Control how often throughput, latency, fill rate, reject rate, and the p99 chart refresh on screen.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <label class="text-xs text-slate-400 whitespace-nowrap">Refresh every</label>
+          <select v-model.number="selectedRefreshSeconds"
+                  @change="updateMetricsRefreshInterval"
+                  class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500">
+            <option v-for="seconds in metricsRefreshOptions" :key="seconds" :value="seconds">
+              {{ seconds }} second{{ seconds === 1 ? '' : 's' }}
+            </option>
+          </select>
+          <span class="text-xs text-brand-500 font-mono whitespace-nowrap">applied every {{ selectedRefreshSeconds }}s</span>
+        </div>
+      </div>
+
       <!-- ── Stats Cards Row ─────────────────────────────────────────────── -->
       <div class="col-span-12 grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="bg-dark-800 rounded-xl p-4 border border-dark-600">
@@ -178,21 +197,7 @@ createApp({
               <h2 class="font-semibold text-white text-sm">p99 Latency History</h2>
               <p class="text-xs text-slate-500 mt-1">last 60 dashboard refreshes</p>
             </div>
-            <div class="flex items-center gap-3">
-              <div class="flex flex-col items-end">
-                <label class="text-xs text-slate-400 mb-1">Metrics refresh</label>
-                <select v-model.number="selectedRefreshSeconds"
-                        @change="updateMetricsRefreshInterval"
-                        class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500">
-                  <option v-for="seconds in metricsRefreshOptions" :key="seconds" :value="seconds">
-                    {{ seconds }} second{{ seconds === 1 ? '' : 's' }}
-                  </option>
-                </select>
-              </div>
-              <span class="text-xs text-slate-400 font-mono text-right min-w-[7rem]">
-                applied every {{ selectedRefreshSeconds }}s
-              </span>
-            </div>
+            <span class="text-xs text-slate-400 font-mono">{{ selectedRefreshSeconds }}s cadence</span>
           </div>
           <canvas ref="latencyChart" height="80"></canvas>
         </div>
