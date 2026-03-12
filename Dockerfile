@@ -27,6 +27,10 @@ COPY --from=build /build/build/libs/LLExSimulator-1.0-SNAPSHOT.jar app.jar
 # Default config (can be overridden via volume mount)
 COPY src/main/resources/simulator.properties config/simulator.properties
 
+# Log directories — the ./logs bind-mount will overlay these at runtime,
+# but they must exist in the image for fallback and correct permissions.
+RUN mkdir -p /app/logs/archive
+
 # ── JVM Flags ─────────────────────────────────────────────────────────────────
 # -XX:+UseZGC -XX:+ZGenerational    Java 21 Generational ZGC — sub-ms GC pauses
 # -Xms512m -Xmx512m                 Fixed heap — eliminates resize safepoints

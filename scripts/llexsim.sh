@@ -106,8 +106,13 @@ cmd_build() {
     require_compose
     cd "${PROJECT_ROOT}"
 
-    info "Building fat JAR and Docker image..."
-    docker compose -f "${COMPOSE_FILE}" build --no-cache
+    if [[ "${1:-}" == "--no-cache" ]]; then
+        info "Building fat JAR and Docker image (no cache)..."
+        docker compose --progress plain -f "${COMPOSE_FILE}" build --no-cache
+    else
+        info "Building fat JAR and Docker image (cached layers enabled)..."
+        docker compose --progress plain -f "${COMPOSE_FILE}" build
+    fi
 
     success "Image built: ${IMAGE_NAME}"
     docker images "${IMAGE_NAME}" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
@@ -133,7 +138,7 @@ cmd_start() {
     mkdir -p "${PROJECT_ROOT}/logs"
 
     info "Starting containers..."
-    docker compose -f "${COMPOSE_FILE}" up -d
+    docker compose -f "${COMPOSE_FILE}" up -d --force-recreate
 
     wait_healthy
 
@@ -305,6 +310,7 @@ ${BOLD}Environment Variables:${RESET}
 ${BOLD}Examples:${RESET}
   # First-time setup
   ./scripts/llexsim.sh build
+  ./scripts/llexsim.sh build --no-cache
   ./scripts/llexsim.sh start
 
   # Daily use

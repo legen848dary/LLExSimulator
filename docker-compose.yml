@@ -10,7 +10,7 @@ services:
       - "9880:9880"    # FIX acceptor — FIX 4.2 / 4.4 / 5.0
     volumes:
       - ./config:/app/config:ro             # override simulator.properties without rebuild
-      - llexsim-artio-logs:/app/logs        # FIX session logs
+      - ./logs:/app/logs                    # persist logs on host — survives container restarts/removal
     environment:
       JAVA_OPTS: >-
         -XX:+UseZGC
@@ -49,7 +49,4 @@ services:
       retries: 3
       start_period: 30s
 
-volumes:
-  llexsim-artio-logs:
-    driver: local
 
