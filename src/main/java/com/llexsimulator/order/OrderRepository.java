@@ -39,7 +39,8 @@ public final class OrderRepository {
     public OrderState claim(long correlationId) {
         OrderState state = pool.poll();
         if (state == null) {
-            log.error("Order pool exhausted — increase order.pool.size (correlationId={})", correlationId);
+            log.error("Order pool exhausted — increase order.pool.size (correlationId={}, activeCount={}, pooledCount={})",
+                    correlationId, active.size(), pool.size());
             return null;
         }
         active.put(correlationId, state);

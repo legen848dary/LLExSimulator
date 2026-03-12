@@ -53,26 +53,27 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
 
         if (delayNs > 0) {
             // Capture primitives for async send — snapshot off the event buffers
-            long corrId     = event.correlationId;
-            long sessionId  = event.sessionConnectionId;
-            long fillPrice  = event.fillInstructionDecoder.fillPrice();
-            int  fillPctBps = event.fillInstructionDecoder.fillPctBps();
-            long orderQty   = event.nosDecoder.orderQty();
-            long price      = event.nosDecoder.price();
+            long corrId              = event.correlationId;
+            long sessionId           = event.sessionConnectionId;
+            long fillPrice           = event.fillInstructionDecoder.fillPrice();
+            int  fillPctBps          = event.fillInstructionDecoder.fillPctBps();
+            int  numPartialFills     = Math.max(1, event.fillInstructionDecoder.numPartialFills());
+            long orderQty            = event.nosDecoder.orderQty();
+            long price               = event.nosDecoder.price();
             com.llexsimulator.sbe.OrderSide side = event.nosDecoder.side();
             // small heap alloc — off critical path (delayed fill)
             byte[] clOrdId = new byte[36];
             event.nosDecoder.getClOrdId(clOrdId, 0);
             byte[] symbol = new byte[16];
             event.nosDecoder.getSymbol(symbol, 0);
-            FillBehaviorType beh = behavior;
 
             Thread.ofVirtual()
                   .name("delayed-fill-" + corrId)
                   .start(() -> {
                       LockSupport.parkNanos(delayNs);
-                      sendFill(corrId, sessionId, clOrdId, symbol, side, orderQty, price,
-                               orderQty, fillPrice != 0 ? fillPrice : price, 10_000, beh);
+                      processBehavior(corrId, sessionId, clOrdId, symbol, side,
+                              orderQty, price, fillPrice, fillPctBps, numPartialFills, behavior,
+                              com.llexsimulator.sbe.RejectReason.SIMULATOR_REJECT);
                   });
         } else {
             sendSync(event, behavior);
@@ -86,42 +87,73 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
         long price     = event.nosDecoder.price();
         long fillPrice = event.fillInstructionDecoder.fillPrice();
         int  fillPct   = event.fillInstructionDecoder.fillPctBps();
+        int  legs      = Math.max(1, event.fillInstructionDecoder.numPartialFills());
         com.llexsimulator.sbe.OrderSide side = event.nosDecoder.side();
 
         // Use pre-allocated scratch arrays on event
         event.nosDecoder.getClOrdId(event.clOrdIdBytes, 0);
         event.nosDecoder.getSymbol(event.symbolBytes, 0);
 
+        processBehavior(corrId, sessionId, event.clOrdIdBytes, event.symbolBytes, side,
+                orderQty, price, fillPrice, fillPct, legs, behavior,
+                event.fillInstructionDecoder.rejectReasonCode());
+    }
+
+    private void processBehavior(long corrId, long sessionId, byte[] clOrdId, byte[] symbol,
+                                 com.llexsimulator.sbe.OrderSide side,
+                                 long orderQty, long price, long fillPrice, int fillPct,
+                                 int legs, FillBehaviorType behavior,
+                                 com.llexsimulator.sbe.RejectReason rejectReason) {
         if (behavior == FillBehaviorType.REJECT) {
-            sendReject(corrId, sessionId, event.clOrdIdBytes, event.symbolBytes, side,
-                       orderQty, price, event.fillInstructionDecoder.rejectReasonCode());
-        } else if (behavior == FillBehaviorType.PARTIAL_THEN_CANCEL) {
-            long fillQty = orderQty * fillPct / 10_000L;
-            sendFill(corrId, sessionId, event.clOrdIdBytes, event.symbolBytes, side,
-                     orderQty, price, fillQty, fillPrice != 0 ? fillPrice : price, fillPct, behavior);
-            sendCancel(corrId, sessionId, event.clOrdIdBytes, event.symbolBytes, side,
-                       orderQty, price, fillQty);
-        } else if (behavior == FillBehaviorType.NO_FILL_IOC_CANCEL) {
-            sendCancel(corrId, sessionId, event.clOrdIdBytes, event.symbolBytes, side,
-                       orderQty, price, 0L);
-        } else {
-            int legs = Math.max(1, event.fillInstructionDecoder.numPartialFills());
-            long perLegQty = (orderQty * fillPct / 10_000L) / legs;
-            for (int i = 0; i < legs; i++) {
-                sendFill(corrId, sessionId, event.clOrdIdBytes, event.symbolBytes, side,
-                         orderQty, price, perLegQty,
-                         fillPrice != 0 ? fillPrice : price, fillPct, behavior);
-            }
+            sendReject(corrId, sessionId, clOrdId, symbol, side,
+                    orderQty, price, rejectReason);
+            return;
+        }
+
+        if (behavior == FillBehaviorType.PARTIAL_THEN_CANCEL) {
+            long fillQty = Math.max(0L, orderQty * fillPct / 10_000L);
+            sendFill(corrId, sessionId, clOrdId, symbol, side,
+                    orderQty, price, fillQty, fillPrice != 0 ? fillPrice : price,
+                    behavior, false);
+            sendCancel(corrId, sessionId, clOrdId, symbol, side, orderQty, price, fillQty);
+            return;
+        }
+
+        if (behavior == FillBehaviorType.NO_FILL_IOC_CANCEL) {
+            sendCancel(corrId, sessionId, clOrdId, symbol, side, orderQty, price, 0L);
+            return;
+        }
+
+        long totalFillQty = Math.max(0L, orderQty * fillPct / 10_000L);
+        int  effectiveLegs = Math.max(1, legs);
+        long sentQty = 0L;
+
+        for (int i = 0; i < effectiveLegs; i++) {
+            long remaining = totalFillQty - sentQty;
+            long fillQty = (i == effectiveLegs - 1)
+                    ? Math.max(0L, remaining)
+                    : Math.max(0L, totalFillQty / effectiveLegs);
+            sentQty += fillQty;
+            boolean terminalAction = i == effectiveLegs - 1;
+
+            sendFill(corrId, sessionId, clOrdId, symbol, side,
+                    orderQty, price, fillQty, fillPrice != 0 ? fillPrice : price,
+                    behavior, terminalAction);
         }
     }
 
     private void sendFill(long corrId, long sessionId, byte[] clOrdId, byte[] symbol,
                           com.llexsimulator.sbe.OrderSide side,
                           long orderQty, long price, long fillQty, long fillPrice,
-                          int fillPctBps, FillBehaviorType behavior) {
+                          FillBehaviorType behavior,
+                          boolean terminalAction) {
         OrderState state = orderRepository.get(corrId);
         SessionID  sid   = sessionRegistry.getSessionId(sessionId);
-        if (sid == null) { log.warn("No session for connId={}", sessionId); return; }
+        if (sid == null) {
+            log.warn("No session for connId={} (correlationId={})", sessionId, corrId);
+            orderRepository.release(corrId);
+            return;
+        }
 
         orderIdGen.nextId(orderIdBytes, 0);
         execIdGen.nextId(execIdBytes, 0);
@@ -143,7 +175,7 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
         if (state != null) {
             state.setCumQty(cumQty);
             state.setLeavesQty(leavesQty);
-            if (filled) orderRepository.release(corrId);
+            if (filled || terminalAction) orderRepository.release(corrId);
         }
     }
 
@@ -152,7 +184,11 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
                             long orderQty, long price,
                             com.llexsimulator.sbe.RejectReason reason) {
         SessionID sid = sessionRegistry.getSessionId(sessionId);
-        if (sid == null) return;
+        if (sid == null) {
+            log.warn("No session for reject connId={} (correlationId={})", sessionId, corrId);
+            orderRepository.release(corrId);
+            return;
+        }
 
         orderIdGen.nextId(orderIdBytes, 0);
         execIdGen.nextId(execIdBytes, 0);
@@ -172,7 +208,11 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
                             com.llexsimulator.sbe.OrderSide side,
                             long orderQty, long price, long cumQty) {
         SessionID sid = sessionRegistry.getSessionId(sessionId);
-        if (sid == null) return;
+        if (sid == null) {
+            log.warn("No session for cancel connId={} (correlationId={})", sessionId, corrId);
+            orderRepository.release(corrId);
+            return;
+        }
 
         orderIdGen.nextId(orderIdBytes, 0);
         execIdGen.nextId(execIdBytes, 0);
