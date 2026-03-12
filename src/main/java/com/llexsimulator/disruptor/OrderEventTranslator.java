@@ -41,11 +41,7 @@ public final class OrderEventTranslator implements EventTranslatorVararg<OrderEv
         event.isValid             = false;
 
         // ── Encode into pre-allocated orderBuffer using SBE ──────────────────
-        NewOrderSingleEncoder enc = event.nosDecoder
-                // Re-use the encoder — just wrap the same buffer
-                != null ? new NewOrderSingleEncoder() : new NewOrderSingleEncoder();
-        // Use a local encoder (field on event is the *decoder*); use the shared headerEncoder
-        NewOrderSingleEncoder encoder = new NewOrderSingleEncoder();
+        NewOrderSingleEncoder encoder = event.nosEncoder;
         encoder.wrapAndApplyHeader(event.orderBuffer, 0, event.headerEncoder);
 
         encoder.correlationId(event.correlationId)

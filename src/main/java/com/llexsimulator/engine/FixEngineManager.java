@@ -25,7 +25,7 @@ public final class FixEngineManager {
 
     public FixEngineManager(FixSessionApplication app) throws Exception {
         SessionSettings settings = loadSettings();
-        MessageStoreFactory storeFactory = new FileStoreFactory(settings);
+        MessageStoreFactory storeFactory = createStoreFactory(settings);
         LogFactory          logFactory   = new FileLogFactory(settings);
         MessageFactory      msgFactory   = new DefaultMessageFactory();
 
@@ -52,6 +52,18 @@ public final class FixEngineManager {
         } catch (java.io.IOException e) {
             throw new ConfigError("Failed to read quickfixj.cfg: " + e.getMessage());
         }
+    }
+
+    private static MessageStoreFactory createStoreFactory(SessionSettings settings)
+            throws ConfigError, FieldConvertError {
+        boolean persistMessages = settings.isSetting("PersistMessages") && settings.getBool("PersistMessages");
+        if (persistMessages) {
+            log.info("QuickFIX/J message persistence enabled — using FileStoreFactory");
+            return new FileStoreFactory(settings);
+        }
+
+        log.info("QuickFIX/J message persistence disabled — using MemoryStoreFactory for lower latency");
+        return new MemoryStoreFactory();
     }
 
     public void start() throws RuntimeError, ConfigError {

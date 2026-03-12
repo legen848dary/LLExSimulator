@@ -24,6 +24,7 @@ public final class OrderEvent {
     public final UnsafeBuffer fillInstructionBuffer  = new UnsafeBuffer(ByteBuffer.allocateDirect(128));
 
     // ── SBE flyweight codecs — created once, re-wrapped per event ────────────
+    public final NewOrderSingleEncoder   nosEncoder             = new NewOrderSingleEncoder();
     public final NewOrderSingleDecoder   nosDecoder             = new NewOrderSingleDecoder();
     public final ExecutionReportEncoder  execReportEncoder      = new ExecutionReportEncoder();
     public final ExecutionReportDecoder  execReportDecoder      = new ExecutionReportDecoder();

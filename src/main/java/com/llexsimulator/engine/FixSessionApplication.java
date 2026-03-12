@@ -23,9 +23,9 @@ public final class FixSessionApplication implements Application {
     private final OrderSessionRegistry registry;
     private final DisruptorPipeline    pipeline;
 
-    // Per-session connection-ID cache (String key → long value)
-    // Accessed only on QuickFIX/J threads; String keys are unavoidable with QFJ.
-    private final java.util.concurrent.ConcurrentHashMap<String, Long> sessionConnIds =
+    // Per-session connection-ID cache.
+    // SessionID is immutable, so we can avoid per-message toString() allocation.
+    private final java.util.concurrent.ConcurrentHashMap<SessionID, Long> sessionConnIds =
             new java.util.concurrent.ConcurrentHashMap<>();
 
     public FixSessionApplication(OrderSessionRegistry registry, DisruptorPipeline pipeline) {
@@ -41,14 +41,13 @@ public final class FixSessionApplication implements Application {
     @Override
     public void onLogon(SessionID sessionID) {
         long connId = registry.register(sessionID);
-        sessionConnIds.put(sessionID.toString(), connId);
+        sessionConnIds.put(sessionID, connId);
         log.info("FIX logon: {} → connId={}", sessionID, connId);
     }
 
     @Override
     public void onLogout(SessionID sessionID) {
-        String key   = sessionID.toString();
-        Long   connId = sessionConnIds.remove(key);
+        Long connId = sessionConnIds.remove(sessionID);
         if (connId != null) registry.remove(connId);
         log.info("FIX logout: {}", sessionID);
     }
@@ -81,8 +80,7 @@ public final class FixSessionApplication implements Application {
             return;
         }
 
-        String key    = sessionID.toString();
-        Long   connId = sessionConnIds.get(key);
+        Long connId = sessionConnIds.get(sessionID);
         if (connId == null) {
             log.warn("fromApp received message for unknown session: {}", sessionID);
             return;
