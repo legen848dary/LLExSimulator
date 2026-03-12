@@ -298,6 +298,42 @@ LOG_LINES=500 ./scripts/llexsim.sh logs
 
 ---
 
+## Demo FIX Client
+
+A lightweight demo FIX initiator is included for smoke testing and load generation.
+It connects to the simulator and continuously sends `NewOrderSingle` messages at a
+fixed rate until stopped.
+
+```bash
+./scripts/fix-demo-client.sh start        # default: 100 NewOrderSingles / second
+./scripts/fix-demo-client.sh start 500    # send 500 NOS / second in background
+./scripts/fix-demo-client.sh logs         # tail client progress
+./scripts/fix-demo-client.sh stop         # stop the background client
+```
+
+Run it in the foreground if you want to see connection and progress messages live:
+
+```bash
+./scripts/fix-demo-client.sh run 250
+```
+
+Optional environment overrides:
+
+```bash
+FIX_CLIENT_BEGIN_STRING=FIX.4.4 \
+FIX_CLIENT_SENDER_COMP_ID=CLIENT1 \
+FIX_CLIENT_TARGET_COMP_ID=LLEXSIM \
+FIX_CLIENT_SYMBOL=MSFT \
+FIX_CLIENT_ORDER_QTY=250 \
+FIX_CLIENT_PRICE=412.15 \
+./scripts/fix-demo-client.sh start 1000
+```
+
+The demo client writes logs under `logs/fix-demo-client/` and keeps its QuickFIX/J
+session logs under `logs/fix-demo-client/quickfixj/`.
+
+---
+
 ## Configuration
 
 Configuration is loaded from `src/main/resources/simulator.properties` (or override by mounting `./config/simulator.properties` into the Docker container):

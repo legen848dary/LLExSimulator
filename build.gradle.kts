@@ -106,6 +106,10 @@ sourceSets {
     }
 }
 
+tasks.jar {
+    archiveClassifier.set("plain")
+}
+
 tasks.compileJava {
     dependsOn(generateSbeSources)
     options.compilerArgs.addAll(
