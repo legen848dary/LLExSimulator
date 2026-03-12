@@ -31,5 +31,10 @@ public final class ThroughputTracker {
 
     public void increment()         { currentWindow.increment(); }
     public long getPerSecond()      { return previousWindow.get(); }
+
+    public void reset() {
+        currentWindow.reset();
+        previousWindow.set(0L);
+    }
 }
 

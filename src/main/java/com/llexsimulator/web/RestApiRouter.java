@@ -43,6 +43,7 @@ public final class RestApiRouter {
 
         // ── Statistics ────────────────────────────────────────────────────────
         router.get("/api/statistics").handler(statsHandler.get());
+        router.post("/api/statistics/reset").handler(statsHandler.reset());
 
         // ── Sessions ──────────────────────────────────────────────────────────
         router.get("/api/sessions").handler(sessionHandler.list());

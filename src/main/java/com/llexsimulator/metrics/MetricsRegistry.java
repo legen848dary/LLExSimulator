@@ -2,6 +2,7 @@ package com.llexsimulator.metrics;
 
 import org.HdrHistogram.Histogram;
 
+import java.util.Arrays;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -42,6 +43,16 @@ public final class MetricsRegistry {
     public void incrementOrdersReceived()  { ordersReceived.increment(); }
     public void incrementFills()           { fillsSent.increment(); execReportsSent.increment(); }
     public void incrementRejects()         { rejectsSent.increment(); execReportsSent.increment(); }
+
+    public void reset() {
+        latencyHistogram.reset();
+        ordersReceived.reset();
+        fillsSent.reset();
+        rejectsSent.reset();
+        execReportsSent.reset();
+        throughputTracker.reset();
+        Arrays.fill(snapshotBuf, 0L);
+    }
 
     /**
      * Returns a pre-allocated {@code long[9]} snapshot.

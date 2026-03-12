@@ -47,16 +47,24 @@ createApp({
           <h2 class="font-semibold text-white text-sm">Metrics Dashboard</h2>
           <p class="text-xs text-slate-400 mt-1">Control how often throughput, latency, fill rate, reject rate, and the p99 chart refresh on screen.</p>
         </div>
-        <div class="flex items-center gap-3">
-          <label class="text-xs text-slate-400 whitespace-nowrap">Refresh every</label>
-          <select v-model.number="selectedRefreshSeconds"
-                  @change="updateMetricsRefreshInterval"
-                  class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500">
-            <option v-for="seconds in metricsRefreshOptions" :key="seconds" :value="seconds">
-              {{ seconds }} second{{ seconds === 1 ? '' : 's' }}
-            </option>
-          </select>
-          <span class="text-xs text-brand-500 font-mono whitespace-nowrap">applied every {{ selectedRefreshSeconds }}s</span>
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+          <div class="flex items-center gap-3">
+            <label class="text-xs text-slate-400 whitespace-nowrap">Refresh every</label>
+            <select v-model.number="selectedRefreshSeconds"
+                    @change="updateMetricsRefreshInterval"
+                    class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500">
+              <option v-for="seconds in metricsRefreshOptions" :key="seconds" :value="seconds">
+                {{ seconds }} second{{ seconds === 1 ? '' : 's' }}
+              </option>
+            </select>
+            <span class="text-xs text-brand-500 font-mono whitespace-nowrap">applied every {{ selectedRefreshSeconds }}s</span>
+          </div>
+          <button @click="resetMetrics"
+                  :disabled="isResettingMetrics"
+                  class="px-3 py-2 rounded-lg text-xs font-semibold transition-colors border border-dark-500"
+                  :class="isResettingMetrics ? 'bg-dark-700 text-slate-500 cursor-not-allowed' : 'bg-dark-700 hover:bg-dark-600 text-white'">
+            {{ isResettingMetrics ? 'Resetting…' : 'Reset Metrics' }}
+          </button>
         </div>
       </div>
 
@@ -269,6 +277,7 @@ createApp({
     const rejectRate = ref('0.0')
     const selectedRefreshSeconds = ref(1)
     const metricsRefreshOptions = METRICS_REFRESH_OPTIONS
+    const isResettingMetrics = ref(false)
 
     const latencyChart = ref(null)
     let   chart        = null
@@ -343,6 +352,33 @@ createApp({
       }
     }
 
+    function toMetricsSnapshot(source) {
+      if (!source) return null
+      if (typeof source.ordersReceived === 'undefined' && typeof source.orders === 'number') {
+        return source
+      }
+      return {
+        throughputPerSec: source.throughputPerSec ?? 0,
+        p50Us: source.p50LatencyUs ?? source.p50Us ?? 0,
+        p99Us: source.p99LatencyUs ?? source.p99Us ?? 0,
+        p999Us: source.p999LatencyUs ?? source.p999Us ?? 0,
+        maxUs: source.maxLatencyUs ?? source.maxUs ?? 0,
+        fills: source.fillsSent ?? source.fills ?? 0,
+        rejects: source.rejectsSent ?? source.rejects ?? 0,
+        ordersReceived: source.ordersReceived ?? source.orders ?? 0,
+      }
+    }
+
+    function clearLatencyChart() {
+      latencyHistory.labels.length = 0
+      latencyHistory.p99.length = 0
+      if (chart) {
+        chart.data.labels = latencyHistory.labels
+        chart.data.datasets[0].data = latencyHistory.p99
+        chart.update('none')
+      }
+    }
+
     function flushLatestMetrics(force = false) {
       if (!latestMetricsSnapshot) return
       if (!force && !wsConnected.value) return
@@ -384,6 +420,27 @@ createApp({
       const r = await fetch('/api/statistics')
       const s = await r.json()
       activeProfile.value = s.activeProfile || '–'
+      latestMetricsSnapshot = toMetricsSnapshot(s)
+      flushLatestMetrics(true)
+    }
+
+    async function resetMetrics() {
+      if (isResettingMetrics.value) return
+      isResettingMetrics.value = true
+      try {
+        const r = await fetch('/api/statistics/reset', { method: 'POST' })
+        if (!r.ok) throw new Error(`Reset failed with status ${r.status}`)
+        const s = await r.json()
+        activeProfile.value = s.activeProfile || activeProfile.value
+        latestMetricsSnapshot = toMetricsSnapshot(s)
+        clearLatencyChart()
+        flushLatestMetrics(true)
+      } catch (e) {
+        console.error('Failed to reset metrics', e)
+        alert('Failed to reset metrics. Please try again.')
+      } finally {
+        isResettingMetrics.value = false
+      }
     }
 
     async function activateProfile() {
@@ -469,7 +526,8 @@ createApp({
       wsConnected, activeProfile, profiles, selectedProfile, sessions,
       orders, metrics, fillRate, rejectRate, form, behaviorTypes, rejectReasons,
       showFillPct, showDelay, showReject, showRandom, showPriceImprovement,
-      latencyChart, selectedRefreshSeconds, metricsRefreshOptions, updateMetricsRefreshInterval,
+      latencyChart, selectedRefreshSeconds, metricsRefreshOptions, isResettingMetrics,
+      updateMetricsRefreshInterval, resetMetrics,
       activateProfile, saveAndActivate, disconnectSession, execTypeBadge
     }
   }

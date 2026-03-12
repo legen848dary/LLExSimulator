@@ -24,27 +24,45 @@ public final class StatisticsHandler {
     public Handler<RoutingContext> get() {
         return ctx -> {
             try {
-                StatisticsDto dto = new StatisticsDto();
-                dto.ordersReceived   = registry.getOrdersReceived();
-                dto.execReportsSent  = registry.getExecReportsSent();
-                dto.fillsSent        = registry.getFillsSent();
-                dto.rejectsSent      = registry.getRejectsSent();
-                dto.p50LatencyUs     = registry.getP50Ns()  / 1000;
-                dto.p99LatencyUs     = registry.getP99Ns()  / 1000;
-                dto.p999LatencyUs    = registry.getP999Ns() / 1000;
-                dto.maxLatencyUs     = registry.getMaxLatencyNs() / 1000;
-                dto.throughputPerSec = registry.getThroughputPerSec();
-                dto.fillRatePct      = dto.ordersReceived > 0
-                                       ? dto.fillsSent * 100.0 / dto.ordersReceived : 0.0;
-                dto.activeProfile    = profileManager.getActiveProfileName();
-
-                ctx.response()
-                   .putHeader("Content-Type", "application/json")
-                   .end(mapper.writeValueAsString(dto));
+                writeDto(ctx, buildDto());
             } catch (Exception e) {
                 ctx.fail(500, e);
             }
         };
+    }
+
+    public Handler<RoutingContext> reset() {
+        return ctx -> {
+            try {
+                registry.reset();
+                writeDto(ctx, buildDto());
+            } catch (Exception e) {
+                ctx.fail(500, e);
+            }
+        };
+    }
+
+    private StatisticsDto buildDto() {
+        StatisticsDto dto = new StatisticsDto();
+        dto.ordersReceived   = registry.getOrdersReceived();
+        dto.execReportsSent  = registry.getExecReportsSent();
+        dto.fillsSent        = registry.getFillsSent();
+        dto.rejectsSent      = registry.getRejectsSent();
+        dto.p50LatencyUs     = registry.getP50Ns()  / 1000;
+        dto.p99LatencyUs     = registry.getP99Ns()  / 1000;
+        dto.p999LatencyUs    = registry.getP999Ns() / 1000;
+        dto.maxLatencyUs     = registry.getMaxLatencyNs() / 1000;
+        dto.throughputPerSec = registry.getThroughputPerSec();
+        dto.fillRatePct      = dto.ordersReceived > 0
+                               ? dto.fillsSent * 100.0 / dto.ordersReceived : 0.0;
+        dto.activeProfile    = profileManager.getActiveProfileName();
+        return dto;
+    }
+
+    private void writeDto(RoutingContext ctx, StatisticsDto dto) throws Exception {
+        ctx.response()
+           .putHeader("Content-Type", "application/json")
+           .end(mapper.writeValueAsString(dto));
     }
 }
 
