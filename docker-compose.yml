@@ -20,14 +20,15 @@ services:
         -XX:+DisableExplicitGC
         -XX:+PerfDisableSharedMem
         -Daeron.dir=/dev/shm/aeron-llexsim
-        -Daeron.threading.mode=DEDICATED
-        -Daeron.sender.idle.strategy=noop
-        -Daeron.receiver.idle.strategy=noop
+        -Daeron.ipc.term.buffer.length=8388608
+        -Daeron.threading.mode=SHARED
+        -Daeron.shared.idle.strategy=backoff
         -Dagrona.disable.bounds.checks=true
         --add-opens java.base/sun.nio.ch=ALL-UNNAMED
         --add-opens java.base/java.nio=ALL-UNNAMED
         --add-opens java.base/java.lang=ALL-UNNAMED
-    # Aeron IPC requires /dev/shm to be large enough for memory-mapped files
+    # Aeron IPC prefers /dev/shm for latency, but the simulator now falls back to /tmp
+    # automatically if usable shared memory is too small for startup.
     shm_size: "512mb"
     ulimits:
       memlock:

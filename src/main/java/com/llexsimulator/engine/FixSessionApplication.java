@@ -1,93 +1,116 @@
 package com.llexsimulator.engine;
 
 import com.llexsimulator.disruptor.DisruptorPipeline;
+import io.aeron.logbuffer.ControlledFragmentHandler.Action;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quickfix.*;
-import quickfix.field.MsgType;
+import uk.co.real_logic.artio.decoder.NewOrderSingleDecoder;
+import uk.co.real_logic.artio.decoder.OrderCancelRequestDecoder;
+import uk.co.real_logic.artio.library.FixLibrary;
+import uk.co.real_logic.artio.library.OnMessageInfo;
+import uk.co.real_logic.artio.library.SessionAcquireHandler;
+import uk.co.real_logic.artio.library.SessionAcquiredInfo;
+import uk.co.real_logic.artio.library.SessionHandler;
+import uk.co.real_logic.artio.messages.DisconnectReason;
+import uk.co.real_logic.artio.session.Session;
+import uk.co.real_logic.artio.session.SessionWriter;
+import uk.co.real_logic.artio.util.MutableAsciiBuffer;
 
 /**
- * QuickFIX/J {@link Application} implementation.
- *
- * <p>On each incoming {@code NewOrderSingle} or {@code OrderCancelRequest}, it
- * records the arrival nanosecond timestamp and publishes the raw {@link Message}
- * to the Disruptor ring buffer. The FIX thread is released as fast as possible.
- *
- * <p>One instance is shared across all sessions (thread-safe by QuickFIX/J contract
- * — callbacks from different sessions may arrive concurrently).
+ * Artio acceptor session factory and inbound session handler.
  */
-public final class FixSessionApplication implements Application {
+public final class FixSessionApplication implements SessionAcquireHandler {
 
     private static final Logger log = LoggerFactory.getLogger(FixSessionApplication.class);
+    private static final long NEW_ORDER_SINGLE_TYPE = 'D';
+    private static final long ORDER_CANCEL_REQUEST_TYPE = 'F';
 
     private final OrderSessionRegistry registry;
-    private final DisruptorPipeline    pipeline;
+    private final DisruptorPipeline pipeline;
 
-    // Per-session connection-ID cache.
-    // SessionID is immutable, so we can avoid per-message toString() allocation.
-    private final java.util.concurrent.ConcurrentHashMap<SessionID, Long> sessionConnIds =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile FixLibrary library;
 
     public FixSessionApplication(OrderSessionRegistry registry, DisruptorPipeline pipeline) {
         this.registry = registry;
         this.pipeline = pipeline;
     }
 
-    @Override
-    public void onCreate(SessionID sessionID) {
-        log.info("FIX session created: {}", sessionID);
+    public void attachLibrary(FixLibrary library) {
+        this.library = library;
     }
 
     @Override
-    public void onLogon(SessionID sessionID) {
-        long connId = registry.register(sessionID);
-        sessionConnIds.put(sessionID, connId);
-        log.info("FIX logon: {} → connId={}", sessionID, connId);
+    public SessionHandler onSessionAcquired(Session session, SessionAcquiredInfo acquiredInfo) {
+        FixLibrary currentLibrary = library;
+        if (currentLibrary == null) {
+            throw new IllegalStateException("Artio library must be attached before session acquisition");
+        }
+
+        SessionWriter writer = currentLibrary.sessionWriter(session.id(), session.connectionId(), session.sequenceIndex());
+        FixConnection connection = registry.register(session, writer);
+        log.info("FIX logon: session={} connId={} slow={} metaDataStatus={}",
+                connection.sessionKey(), connection.connectionId(), acquiredInfo.isSlow(), acquiredInfo.metaDataStatus());
+        return new InboundSessionHandler(connection);
     }
 
-    @Override
-    public void onLogout(SessionID sessionID) {
-        Long connId = sessionConnIds.remove(sessionID);
-        if (connId != null) registry.remove(connId);
-        log.info("FIX logout: {}", sessionID);
-    }
+    private final class InboundSessionHandler implements SessionHandler {
 
-    @Override
-    public void toAdmin(Message message, SessionID sessionID) { /* no-op */ }
+        private final FixConnection connection;
+        private final MutableAsciiBuffer asciiBuffer = new MutableAsciiBuffer();
+        private final NewOrderSingleDecoder newOrderSingleDecoder = new NewOrderSingleDecoder();
+        private final OrderCancelRequestDecoder orderCancelRequestDecoder = new OrderCancelRequestDecoder();
 
-    @Override
-    public void fromAdmin(Message message, SessionID sessionID) { /* no-op */ }
-
-    @Override
-    public void toApp(Message message, SessionID sessionID) { /* no-op */ }
-
-    @Override
-    public void fromApp(Message message, SessionID sessionID)
-            throws FieldNotFound, IncorrectDataFormat, IncorrectTagValue, UnsupportedMessageType {
-
-        // Capture arrival timestamp FIRST — before any processing
-        long arrivalNs = System.nanoTime();
-
-        String msgType;
-        try {
-            msgType = message.getHeader().getString(MsgType.FIELD);
-        } catch (FieldNotFound e) {
-            return; // malformed — skip
+        private InboundSessionHandler(FixConnection connection) {
+            this.connection = connection;
         }
 
-        // Only process NewOrderSingle (D) and OrderCancelRequest (F)
-        if (!MsgType.ORDER_SINGLE.equals(msgType) && !MsgType.ORDER_CANCEL_REQUEST.equals(msgType)) {
-            return;
+        @Override
+        public Action onMessage(org.agrona.DirectBuffer buffer, int offset, int length, int libraryId,
+                                Session session, int sequenceIndex, long messageType, long timestampInNs,
+                                long position, OnMessageInfo messageInfo) {
+
+            if (!messageInfo.isValid()) {
+                return Action.CONTINUE;
+            }
+
+            connection.sequenceIndex(sequenceIndex);
+            long arrivalNs = System.nanoTime();
+            asciiBuffer.wrap(buffer);
+
+            if (messageType == NEW_ORDER_SINGLE_TYPE) {
+                newOrderSingleDecoder.decode(asciiBuffer, offset, length);
+                pipeline.publish(newOrderSingleDecoder, connection, arrivalNs);
+            } else if (messageType == ORDER_CANCEL_REQUEST_TYPE) {
+                orderCancelRequestDecoder.decode(asciiBuffer, offset, length);
+                pipeline.publish(orderCancelRequestDecoder, connection, arrivalNs);
+            }
+
+            return Action.CONTINUE;
         }
 
-        Long connId = sessionConnIds.get(sessionID);
-        if (connId == null) {
-            log.warn("fromApp received message for unknown session: {}", sessionID);
-            return;
+        @Override
+        public void onTimeout(int libraryId, Session session) {
+            log.warn("FIX session timeout: {}", connection.sessionKey());
         }
 
-        // Publish to Disruptor — this call returns immediately
-        pipeline.publish(message, sessionID, connId, arrivalNs);
+        @Override
+        public void onSlowStatus(int libraryId, Session session, boolean hasBecomeSlow) {
+            log.warn("FIX slow-consumer status changed: session={} slow={}", connection.sessionKey(), hasBecomeSlow);
+        }
+
+        @Override
+        public Action onDisconnect(int libraryId, Session session, DisconnectReason reason) {
+            connection.markDisconnected();
+            registry.remove(connection.connectionId());
+            log.info("FIX logout: session={} reason={}", connection.sessionKey(), reason);
+            return Action.CONTINUE;
+        }
+
+        @Override
+        public void onSessionStart(Session session) {
+            connection.updateSession(session, connection.writer());
+            log.info("FIX session started: {}", connection.sessionKey());
+        }
     }
 }
 

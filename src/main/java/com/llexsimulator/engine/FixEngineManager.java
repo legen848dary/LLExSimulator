@@ -1,75 +1,86 @@
 package com.llexsimulator.engine;
 
+import com.llexsimulator.config.SimulatorConfig;
+import com.llexsimulator.fix.ArtioDictionaryResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quickfix.*;
+import org.agrona.concurrent.SleepingIdleStrategy;
+import uk.co.real_logic.artio.engine.EngineConfiguration;
+import uk.co.real_logic.artio.engine.FixEngine;
+import uk.co.real_logic.artio.library.FixLibrary;
+import uk.co.real_logic.artio.library.LibraryConfiguration;
+import uk.co.real_logic.artio.messages.InitialAcceptedSessionOwner;
+import uk.co.real_logic.artio.validation.MessageValidationStrategy;
+import uk.co.real_logic.artio.validation.SessionPersistenceStrategy;
 
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Manages the QuickFIX/J {@link SocketAcceptor} lifecycle.
- *
- * <p>Reads session configuration from {@code /app/config/quickfixj.cfg} when
- * present, otherwise falls back to {@code quickfixj.cfg} on the classpath.
- * Supports FIX 4.2, 4.4, 5.0, 5.0SP2, and FIXT 1.1.
+ * Manages the Artio acceptor engine + library lifecycle.
  */
 public final class FixEngineManager {
 
     private static final Logger log = LoggerFactory.getLogger(FixEngineManager.class);
-    private static final Path EXTERNAL_CONFIG_PATH = Path.of("/app/config/quickfixj.cfg");
+    private static final int POLL_FRAGMENT_LIMIT = 10;
 
-    private final SocketAcceptor acceptor;
+    private final FixSessionApplication app;
+    private final SimulatorConfig config;
+
+    private FixEngine engine;
+    private FixLibrary library;
+    private Thread pollerThread;
+    private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile boolean started;
 
-    public FixEngineManager(FixSessionApplication app) throws Exception {
-        SessionSettings settings = loadSettings();
-        MessageStoreFactory storeFactory = createStoreFactory(settings);
-        LogFactory          logFactory   = new FileLogFactory(settings);
-        MessageFactory      msgFactory   = new DefaultMessageFactory();
-
-        this.acceptor = new SocketAcceptor(app, storeFactory, settings, logFactory, msgFactory);
-        log.info("QuickFIX/J SocketAcceptor created");
+    public FixEngineManager(FixSessionApplication app, SimulatorConfig config) {
+        this.app = app;
+        this.config = config;
     }
 
-    private static SessionSettings loadSettings() throws ConfigError {
-        if (Files.isRegularFile(EXTERNAL_CONFIG_PATH)) {
-            try (InputStream in = Files.newInputStream(EXTERNAL_CONFIG_PATH)) {
-                log.info("Loaded quickfixj.cfg from {}", EXTERNAL_CONFIG_PATH);
-                return new SessionSettings(in);
-            } catch (java.io.IOException e) {
-                throw new ConfigError("Failed to read quickfixj.cfg from " + EXTERNAL_CONFIG_PATH + ": " + e.getMessage());
-            }
-        }
+    public void start() throws Exception {
+        Files.createDirectories(Path.of(config.fixLogDir()));
+        String libraryAeronChannel = config.artioLibraryAeronChannel();
 
-        try (InputStream in = FixEngineManager.class.getResourceAsStream("/quickfixj.cfg")) {
-            if (in == null) {
-                throw new ConfigError("quickfixj.cfg not found on classpath");
-            }
-            log.info("Loaded quickfixj.cfg from classpath");
-            return new SessionSettings(in);
-        } catch (java.io.IOException e) {
-            throw new ConfigError("Failed to read quickfixj.cfg: " + e.getMessage());
-        }
-    }
+        EngineConfiguration engineConfiguration = new EngineConfiguration()
+                .bindTo(config.fixHost(), config.fixPort())
+                .bindAtStartup(true)
+                .libraryAeronChannel(libraryAeronChannel)
+                .logFileDir(config.fixLogDir())
+                .deleteLogFileDirOnStart(false)
+                .logInboundMessages(config.fixRawMessageLoggingEnabled())
+                .logOutboundMessages(config.fixRawMessageLoggingEnabled())
+                .sessionPersistenceStrategy(SessionPersistenceStrategy.alwaysTransient())
+                .initialAcceptedSessionOwner(InitialAcceptedSessionOwner.SOLE_LIBRARY)
+                .messageValidationStrategy(MessageValidationStrategy.none())
+                .acceptorfixDictionary(ArtioDictionaryResolver.resolve())
+                .printStartupWarnings(true)
+                .printErrorMessages(true);
+        engineConfiguration.aeronContext().aeronDirectoryName(config.aeronDir());
 
-    private static MessageStoreFactory createStoreFactory(SessionSettings settings)
-            throws ConfigError, FieldConvertError {
-        boolean persistMessages = settings.isSetting("PersistMessages") && settings.getBool("PersistMessages");
-        if (persistMessages) {
-            log.info("QuickFIX/J message persistence enabled — using FileStoreFactory");
-            return new FileStoreFactory(settings);
-        }
+        LibraryConfiguration libraryConfiguration = new LibraryConfiguration()
+                .sessionAcquireHandler(app)
+                .libraryAeronChannels(java.util.List.of(libraryAeronChannel));
+        libraryConfiguration.aeronContext().aeronDirectoryName(config.aeronDir());
 
-        log.info("QuickFIX/J message persistence disabled — using MemoryStoreFactory for lower latency");
-        return new MemoryStoreFactory();
-    }
+        engine = FixEngine.launch(engineConfiguration);
+        library = FixLibrary.connect(libraryConfiguration);
+        app.attachLibrary(library);
 
-    public void start() throws RuntimeError, ConfigError {
-        acceptor.start();
+        waitForLibraryConnect();
+
+        running.set(true);
+        pollerThread = Thread.ofPlatform()
+                .name("artio-library-poller")
+                .daemon(true)
+                .unstarted(this::pollLibrary);
+        pollerThread.setPriority(Thread.MAX_PRIORITY);
+        pollerThread.start();
+
         started = true;
-        log.info("FIX acceptor started");
+        log.info("Artio FIX acceptor started: host={} port={} logDir={} aeronDir={} libraryChannel={}",
+                config.fixHost(), config.fixPort(), config.fixLogDir(), config.aeronDir(), libraryAeronChannel);
     }
 
     public void stop() {
@@ -77,17 +88,61 @@ public final class FixEngineManager {
             log.info("FIX acceptor was not started; skipping stop");
             return;
         }
-        acceptor.stop();
+        running.set(false);
+        if (pollerThread != null) {
+            pollerThread.interrupt();
+            try {
+                pollerThread.join(2_000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (library != null) {
+            library.close();
+        }
+        if (engine != null) {
+            engine.close();
+        }
         started = false;
-        log.info("FIX acceptor stopped");
+        log.info("Artio FIX acceptor stopped");
     }
 
     public boolean isLoggedOn() {
-        return acceptor.isLoggedOn();
+        return started && library != null && !library.sessions().isEmpty();
     }
 
     public int getSessionCount() {
-        return acceptor.getManagedSessions().size();
+        return library == null ? 0 : library.sessions().size();
+    }
+
+    private void waitForLibraryConnect() {
+        long deadlineNs = System.nanoTime() + 5_000_000_000L;
+        SleepingIdleStrategy idleStrategy = new SleepingIdleStrategy();
+        while (!library.isConnected()) {
+            library.poll(POLL_FRAGMENT_LIMIT);
+            if (System.nanoTime() >= deadlineNs) {
+                throw new IllegalStateException("Timed out waiting for Artio library to connect");
+            }
+            idleStrategy.idle();
+        }
+    }
+
+    private void pollLibrary() {
+        while (running.get()) {
+            int workCount = library.poll(POLL_FRAGMENT_LIMIT);
+            if (workCount == 0) {
+                if ("BUSY_SPIN".equalsIgnoreCase(config.waitStrategy())) {
+                    Thread.onSpinWait();
+                } else {
+                    try {
+                        Thread.sleep(1L);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }
+        }
     }
 }
 

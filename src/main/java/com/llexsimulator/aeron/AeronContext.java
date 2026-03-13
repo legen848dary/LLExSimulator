@@ -26,6 +26,7 @@ public final class AeronContext implements AutoCloseable {
         MediaDriver.Context mdCtx = new MediaDriver.Context()
                 .aeronDirectoryName(aeronDir)
                 .threadingMode(ThreadingMode.DEDICATED)
+                .ipcTermBufferLength(AeronRuntimeTuning.DEFAULT_ARTIO_IPC_TERM_LENGTH_BYTES)
                 .dirDeleteOnStart(true)
                 .dirDeleteOnShutdown(true)
                 .conductorIdleStrategy(new BusySpinIdleStrategy())

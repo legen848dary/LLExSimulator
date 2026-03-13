@@ -25,6 +25,7 @@ QFJ_LOG_DIR="${LOG_ROOT}/quickfixj"
 PID_FILE="${LOG_ROOT}/demo-fix-client.pid"
 CONSOLE_LOG="${LOG_ROOT}/console.log"
 DEFAULT_RATE="100"
+DEFAULT_AERON_DIR="/tmp/aeron-llexsim"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
@@ -76,17 +77,24 @@ rate_arg() {
 
 java_cmd() {
     local rate="$1"
+    local -a default_opts=(
+      "--add-opens" "java.base/sun.nio.ch=ALL-UNNAMED"
+      "--add-opens" "java.base/java.nio=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang=ALL-UNNAMED"
+      "-Dfix.demo.aeron.dir=${FIX_CLIENT_AERON_DIR:-${DEFAULT_AERON_DIR}}"
+    )
     java \
+      "${default_opts[@]}" \
       ${FIX_DEMO_JAVA_OPTS:-} \
       -Dllexsim.log.dir="${LOG_ROOT}" \
       -Dllexsim.log.name="fix-demo-client" \
       -Dfix.demo.logDir="${QFJ_LOG_DIR}" \
       -Dfix.demo.host="${FIX_CLIENT_HOST:-localhost}" \
       -Dfix.demo.port="${FIX_CLIENT_PORT:-9880}" \
-      -Dfix.demo.beginString="${FIX_CLIENT_BEGIN_STRING:-FIX.4.2}" \
+      -Dfix.demo.beginString="${FIX_CLIENT_BEGIN_STRING:-FIX.4.4}" \
       -Dfix.demo.senderCompId="${FIX_CLIENT_SENDER_COMP_ID:-CLIENT1}" \
       -Dfix.demo.targetCompId="${FIX_CLIENT_TARGET_COMP_ID:-LLEXSIM}" \
-      -Dfix.demo.defaultApplVerId="${FIX_CLIENT_DEFAULT_APPL_VER_ID:-FIX.5.0}" \
+      -Dfix.demo.defaultApplVerId="${FIX_CLIENT_DEFAULT_APPL_VER_ID:-FIX.4.4}" \
       -Dfix.demo.symbol="${FIX_CLIENT_SYMBOL:-AAPL}" \
       -Dfix.demo.side="${FIX_CLIENT_SIDE:-BUY}" \
       -Dfix.demo.orderQty="${FIX_CLIENT_ORDER_QTY:-100}" \
@@ -99,17 +107,24 @@ java_cmd() {
 
 exec_java_cmd() {
     local rate="$1"
+    local -a default_opts=(
+      "--add-opens" "java.base/sun.nio.ch=ALL-UNNAMED"
+      "--add-opens" "java.base/java.nio=ALL-UNNAMED"
+      "--add-opens" "java.base/java.lang=ALL-UNNAMED"
+      "-Dfix.demo.aeron.dir=${FIX_CLIENT_AERON_DIR:-${DEFAULT_AERON_DIR}}"
+    )
     exec java \
+      "${default_opts[@]}" \
       ${FIX_DEMO_JAVA_OPTS:-} \
       -Dllexsim.log.dir="${LOG_ROOT}" \
       -Dllexsim.log.name="fix-demo-client" \
       -Dfix.demo.logDir="${QFJ_LOG_DIR}" \
       -Dfix.demo.host="${FIX_CLIENT_HOST:-localhost}" \
       -Dfix.demo.port="${FIX_CLIENT_PORT:-9880}" \
-      -Dfix.demo.beginString="${FIX_CLIENT_BEGIN_STRING:-FIX.4.2}" \
+      -Dfix.demo.beginString="${FIX_CLIENT_BEGIN_STRING:-FIX.4.4}" \
       -Dfix.demo.senderCompId="${FIX_CLIENT_SENDER_COMP_ID:-CLIENT1}" \
       -Dfix.demo.targetCompId="${FIX_CLIENT_TARGET_COMP_ID:-LLEXSIM}" \
-      -Dfix.demo.defaultApplVerId="${FIX_CLIENT_DEFAULT_APPL_VER_ID:-FIX.5.0}" \
+      -Dfix.demo.defaultApplVerId="${FIX_CLIENT_DEFAULT_APPL_VER_ID:-FIX.4.4}" \
       -Dfix.demo.symbol="${FIX_CLIENT_SYMBOL:-AAPL}" \
       -Dfix.demo.side="${FIX_CLIENT_SIDE:-BUY}" \
       -Dfix.demo.orderQty="${FIX_CLIENT_ORDER_QTY:-100}" \
@@ -243,14 +258,15 @@ ${BOLD}Commands:${RESET}
 ${BOLD}Environment Overrides:${RESET}
   FIX_CLIENT_HOST=localhost
   FIX_CLIENT_PORT=9880
-  FIX_CLIENT_BEGIN_STRING=FIX.4.2
+  FIX_CLIENT_BEGIN_STRING=FIX.4.4
   FIX_CLIENT_SENDER_COMP_ID=CLIENT1
   FIX_CLIENT_TARGET_COMP_ID=LLEXSIM
   FIX_CLIENT_SYMBOL=AAPL
   FIX_CLIENT_SIDE=BUY
   FIX_CLIENT_ORDER_QTY=100
   FIX_CLIENT_PRICE=100.25
-  FIX_DEMO_JAVA_OPTS="-Xms128m -Xmx256m"
+  FIX_CLIENT_AERON_DIR=/tmp/aeron-llexsim
+  FIX_DEMO_JAVA_OPTS="-Xms256m -Xmx256m"
 
 ${BOLD}Examples:${RESET}
   ./scripts/fix-demo-client.sh start

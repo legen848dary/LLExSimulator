@@ -48,6 +48,7 @@ ENV JAVA_OPTS="\
   -XX:+DisableExplicitGC \
   -XX:+PerfDisableSharedMem \
   -Daeron.dir=/dev/shm/aeron-llexsim \
+  -Daeron.ipc.term.buffer.length=8388608 \
   -Daeron.threading.mode=DEDICATED \
   -Daeron.sender.idle.strategy=noop \
   -Daeron.receiver.idle.strategy=noop \

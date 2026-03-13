@@ -27,14 +27,13 @@ public final class MetricsPublisher {
     private final UnsafeBuffer          buffer;
     private final MetricsSnapshotEncoder encoder;
     private final MessageHeaderEncoder  headerEncoder;
-
-    public MetricsPublisher(AeronContext ctx) {
-        this.publication   = ctx.getAeron().addPublication("aeron:ipc", STREAM_ID);
+    public MetricsPublisher(AeronContext ctx, String channel) {
+        this.publication   = ctx.getAeron().addPublication(channel, STREAM_ID);
         int bufLen = MessageHeaderEncoder.ENCODED_LENGTH + MetricsSnapshotEncoder.BLOCK_LENGTH;
         this.buffer        = new UnsafeBuffer(ByteBuffer.allocateDirect(bufLen));
         this.encoder       = new MetricsSnapshotEncoder();
         this.headerEncoder = new MessageHeaderEncoder();
-        log.info("MetricsPublisher ready on aeron:ipc stream {}", STREAM_ID);
+        log.info("MetricsPublisher ready on {} stream {}", channel, STREAM_ID);
     }
 
     public void publish(long snapshotTimeNs, long orders, long execReports,

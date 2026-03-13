@@ -1,5 +1,6 @@
 package com.llexsimulator;
 
+import com.llexsimulator.aeron.AeronRuntimeTuning;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,6 +32,8 @@ public final class Main {
         setSystemPropertyIfAbsent("aeron.threading.mode",      "DEDICATED");
         setSystemPropertyIfAbsent("aeron.sender.idle.strategy",   "noop");
         setSystemPropertyIfAbsent("aeron.receiver.idle.strategy",  "noop");
+        setSystemPropertyIfAbsent("aeron.ipc.term.buffer.length",
+                Integer.toString(AeronRuntimeTuning.DEFAULT_ARTIO_IPC_TERM_LENGTH_BYTES));
         setSystemPropertyIfAbsent("agrona.disable.bounds.checks",  "true");
 
         SimulatorBootstrap bootstrap = new SimulatorBootstrap();

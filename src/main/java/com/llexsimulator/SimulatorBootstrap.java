@@ -1,6 +1,7 @@
 package com.llexsimulator;
 
 import com.llexsimulator.aeron.AeronContext;
+import com.llexsimulator.aeron.AeronRuntimeTuning;
 import com.llexsimulator.aeron.MetricsPublisher;
 import com.llexsimulator.aeron.MetricsSubscriber;
 import com.llexsimulator.config.ConfigLoader;
@@ -52,13 +53,15 @@ public final class SimulatorBootstrap {
         log.info("=== LLExSimulator starting ===");
 
         // 1 — Config
-        config = ConfigLoader.load();
-        log.info("Config: fixPort={} webPort={} ringBufferSize={}",
-                config.fixPort(), config.webPort(), config.ringBufferSize());
+        config = AeronRuntimeTuning.resolve(ConfigLoader.load());
+        System.setProperty("aeron.dir", config.aeronDir());
+        log.info("Config: fixPort={} webPort={} ringBufferSize={} aeronDir={} artioLibraryChannel={} metricsChannel={}",
+                config.fixPort(), config.webPort(), config.ringBufferSize(),
+                config.aeronDir(), config.artioLibraryAeronChannel(), config.metricsAeronChannel());
 
         // 2 — Aeron
         aeronContext   = new AeronContext(config.aeronDir());
-        metricsPublisher = new MetricsPublisher(aeronContext);
+        metricsPublisher = new MetricsPublisher(aeronContext, config.metricsAeronChannel());
 
         // 3 — Metrics
         metricsRegistry = new MetricsRegistry();
@@ -87,12 +90,13 @@ public final class SimulatorBootstrap {
         webServer = new WebServer(config, metricsRegistry, sessionRegistry, profileManager, disruptorPipeline);
 
         // 8 — Metrics subscriber (Aeron IPC → WebSocket broadcast)
-        metricsSubscriber = new MetricsSubscriber(aeronContext, webServer.getBroadcaster(), webServer.getVertx());
+        metricsSubscriber = new MetricsSubscriber(
+                aeronContext, webServer.getBroadcaster(), webServer.getVertx(), config.metricsAeronChannel());
         Thread.ofVirtual().name("metrics-subscriber").start(metricsSubscriber);
 
         // 9 — FIX engine (last — everything must be ready before accepting connections)
         FixSessionApplication fixApp = new FixSessionApplication(sessionRegistry, disruptorPipeline);
-        fixEngineManager = new FixEngineManager(fixApp);
+        fixEngineManager = new FixEngineManager(fixApp, config);
         fixEngineManager.start();
 
         log.info("=== LLExSimulator ready — FIX port {} | Web port {} ===",

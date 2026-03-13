@@ -32,11 +32,11 @@ public final class MetricsSubscriber implements Runnable {
 
     private volatile boolean running = true;
 
-    public MetricsSubscriber(AeronContext ctx, WebSocketBroadcaster broadcaster, Vertx vertx) {
-        this.subscription = ctx.getAeron().addSubscription("aeron:ipc", STREAM_ID);
+    public MetricsSubscriber(AeronContext ctx, WebSocketBroadcaster broadcaster, Vertx vertx, String channel) {
+        this.subscription = ctx.getAeron().addSubscription(channel, STREAM_ID);
         this.broadcaster  = broadcaster;
         this.vertx        = vertx;
-        log.info("MetricsSubscriber ready on aeron:ipc stream {}", STREAM_ID);
+        log.info("MetricsSubscriber ready on {} stream {}", channel, STREAM_ID);
     }
 
     @Override

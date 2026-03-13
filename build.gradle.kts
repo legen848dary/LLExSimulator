@@ -1,7 +1,10 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import org.gradle.testing.jacoco.plugins.JacocoPluginExtension
+import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
     id("java")
+    id("jacoco")
     id("com.gradleup.shadow") version "8.3.6"
 }
 
@@ -16,6 +19,7 @@ java {
 
 val aeronVersion     = "1.44.0"
 val agronaVersion    = "1.22.0"
+val artioVersion     = "0.154"
 val sbeVersion       = "1.30.0"
 val disruptorVersion = "4.0.0"
 val vertxVersion     = "4.5.10"
@@ -23,24 +27,31 @@ val quickfixVersion  = "2.3.1"
 
 // Separate classpath used only for SBE code-gen; not added to the compile scope
 val sbeCodegen: Configuration by configurations.creating
+val artioCodegen: Configuration by configurations.creating
+val fixDictionarySpec: Configuration by configurations.creating
 
 repositories {
     mavenCentral()
 }
 
+configure<JacocoPluginExtension> {
+    toolVersion = "0.8.12"
+}
+
 dependencies {
-    // ── FIX Engine ─────────────────────────────────────────────────────────────
-    // QuickFIX/J: production-grade FIX engine supporting 4.2, 4.4, 5.0, 5.0SP2
-    implementation("org.quickfixj:quickfixj-core:$quickfixVersion")
-    implementation("org.quickfixj:quickfixj-messages-fix42:$quickfixVersion")
-    implementation("org.quickfixj:quickfixj-messages-fix44:$quickfixVersion")
-    implementation("org.quickfixj:quickfixj-messages-fix50:$quickfixVersion")
-    implementation("org.quickfixj:quickfixj-messages-fix50sp2:$quickfixVersion")
-    implementation("org.quickfixj:quickfixj-messages-fixt11:$quickfixVersion")
+    // ── Artio — low-latency FIX engine ───────────────────────────────────────
+    implementation("uk.co.real-logic:artio-codecs:$artioVersion")
+    implementation("uk.co.real-logic:artio-core:$artioVersion")
+    artioCodegen("uk.co.real-logic:artio-codecs:$artioVersion")
+    artioCodegen("org.agrona:agrona:$agronaVersion")
+    artioCodegen("uk.co.real-logic:sbe-tool:1.32.1")
+    fixDictionarySpec("org.quickfixj:quickfixj-messages-fix44:$quickfixVersion") {
+        isTransitive = false
+    }
 
     // ── Aeron IPC transport (metrics pipeline) ─────────────────────────────────
-    implementation("io.aeron:aeron-driver:$aeronVersion")
-    implementation("io.aeron:aeron-client:$aeronVersion")
+    implementation("io.aeron:aeron-driver:1.45.0")
+    implementation("io.aeron:aeron-client:1.45.0")
 
     // ── Agrona — off-heap data structures ──────────────────────────────────────
     implementation("org.agrona:agrona:$agronaVersion")
@@ -76,6 +87,34 @@ dependencies {
 
 // ── SBE Code Generation ────────────────────────────────────────────────────────
 val sbeOutputDir = layout.buildDirectory.dir("generated/sources/sbe/main/java")
+val artioFixSpecDir = layout.buildDirectory.dir("generated/resources/artio-fix")
+val artioOutputDir = layout.buildDirectory.dir("generated/sources/artio/main/java")
+
+val extractArtioFixDictionary by tasks.registering(Sync::class) {
+    group = "build"
+    description = "Extract the FIX44 XML dictionary used as the Artio codec-generation input"
+    from(zipTree(fixDictionarySpec.singleFile)) {
+        include("**/FIX44.xml")
+        eachFile { path = name }
+        includeEmptyDirs = false
+    }
+    into(artioFixSpecDir)
+}
+
+val generateArtioSources by tasks.registering(JavaExec::class) {
+    group = "build"
+    description = "Generate Artio FIX44 dictionary codecs from the FIX XML specification"
+    dependsOn(extractArtioFixDictionary)
+    classpath = artioCodegen
+    mainClass.set("uk.co.real_logic.artio.dictionary.CodecGenerationTool")
+    args(
+        artioOutputDir.get().asFile.absolutePath,
+        artioFixSpecDir.get().file("FIX44.xml").asFile.absolutePath
+    )
+    doFirst {
+        artioOutputDir.get().asFile.mkdirs()
+    }
+}
 
 val generateSbeSources by tasks.registering(JavaExec::class) {
     group = "build"
@@ -102,6 +141,7 @@ sourceSets {
     main {
         java {
             srcDir(sbeOutputDir)
+            srcDir(artioOutputDir)
         }
     }
 }
@@ -111,7 +151,7 @@ tasks.jar {
 }
 
 tasks.compileJava {
-    dependsOn(generateSbeSources)
+    dependsOn(generateSbeSources, generateArtioSources)
     options.compilerArgs.addAll(
         listOf("--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED")
     )
@@ -132,4 +172,14 @@ tasks.test {
         "--add-opens", "java.base/java.nio=ALL-UNNAMED",
         "--add-opens", "java.base/java.lang=ALL-UNNAMED"
     )
+    finalizedBy(tasks.named("jacocoTestReport"))
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+    }
 }

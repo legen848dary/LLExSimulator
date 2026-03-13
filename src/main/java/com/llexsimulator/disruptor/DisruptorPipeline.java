@@ -5,6 +5,7 @@ import com.llexsimulator.disruptor.handler.ExecutionReportHandler;
 import com.llexsimulator.disruptor.handler.FillStrategyHandler;
 import com.llexsimulator.disruptor.handler.MetricsPublishHandler;
 import com.llexsimulator.disruptor.handler.ValidationHandler;
+import com.llexsimulator.engine.FixConnection;
 import com.lmax.disruptor.BusySpinWaitStrategy;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.SleepingWaitStrategy;
@@ -13,6 +14,8 @@ import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import uk.co.real_logic.artio.decoder.NewOrderSingleDecoder;
+import uk.co.real_logic.artio.decoder.OrderCancelRequestDecoder;
 
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -51,7 +54,7 @@ public final class DisruptorPipeline {
                 new OrderEventFactory(),
                 config.ringBufferSize(),
                 tf,
-                ProducerType.SINGLE,   // single producer: QuickFIX/J acceptor thread
+                ProducerType.MULTI,
                 waitStrategy
         );
 
@@ -76,13 +79,12 @@ public final class DisruptorPipeline {
         log.info("Disruptor pipeline stopped");
     }
 
-    /**
-     * Publishes a QuickFIX/J message to the ring buffer.
-     * Called from the QuickFIX/J acceptor thread.
-     */
-    public void publish(quickfix.Message message, quickfix.SessionID sessionId,
-                        long sessionConnId, long arrivalNs) {
-        ringBuffer.publishEvent(translator, message, sessionId, sessionConnId, arrivalNs);
+    public void publish(NewOrderSingleDecoder decoder, FixConnection connection, long arrivalNs) {
+        ringBuffer.publishEvent(translator, decoder, connection, arrivalNs);
+    }
+
+    public void publish(OrderCancelRequestDecoder decoder, FixConnection connection, long arrivalNs) {
+        ringBuffer.publishEvent(translator, decoder, connection, arrivalNs);
     }
 
     public RingBuffer<OrderEvent> getRingBuffer() { return ringBuffer; }

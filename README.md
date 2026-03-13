@@ -226,6 +226,7 @@ java \
   -XX:+AlwaysPreTouch \
   -XX:+DisableExplicitGC \
   -Daeron.dir=/tmp/aeron-llexsim \
+  -Daeron.ipc.term.buffer.length=8388608 \
   -Daeron.threading.mode=DEDICATED \
   -Daeron.sender.idle.strategy=noop \
   -Daeron.receiver.idle.strategy=noop \
@@ -236,7 +237,7 @@ java \
   -jar build/libs/LLExSimulator-1.0-SNAPSHOT.jar
 ```
 
-> **macOS note:** Use `-Daeron.dir=/tmp/aeron-llexsim` instead of `/dev/shm` (macOS has no tmpfs at `/dev/shm`).
+> **Shared-memory note:** the simulator prefers `/dev/shm` on Linux for lower-latency Aeron IPC, but now automatically falls back to `/tmp/aeron-llexsim` if `/dev/shm` is missing or too small for startup.
 
 ---
 
@@ -329,6 +330,13 @@ FIX_CLIENT_PRICE=412.15 \
 ./scripts/fix-demo-client.sh start 1000
 ```
 
+The launcher now injects the required Java `--add-opens` flags automatically for Aeron/Agrona.
+If you need to override the demo client's Aeron directory explicitly, set:
+
+```bash
+FIX_CLIENT_AERON_DIR=/tmp/aeron-llexsim ./scripts/fix-demo-client.sh run 100
+```
+
 The demo client writes logs under `logs/fix-demo-client/` and keeps its QuickFIX/J
 session logs under `logs/fix-demo-client/quickfixj/`.
 
@@ -343,19 +351,22 @@ Configuration is loaded from `src/main/resources/simulator.properties` (or overr
 fix.host=0.0.0.0
 fix.port=9880
 fix.log.dir=logs/quickfixj
+fix.raw.message.logging.enabled=false # enable only for debugging raw FIX I/O
 
 # Disruptor
 ring.buffer.size=131072          # Must be power of 2
 wait.strategy=BUSY_SPIN          # BUSY_SPIN (lowest latency) or SLEEPING (lower CPU)
 
 # Order Repository (pre-allocated pool)
-order.pool.size=16384
+order.pool.size=131072
 
 # Web Server
 web.port=8080
 
 # Aeron IPC
-aeron.dir=/dev/shm/aeron-llexsim  # Use /tmp/aeron-llexsim on macOS
+aeron.dir=/dev/shm/aeron-llexsim              # Falls back to /tmp/aeron-llexsim when /dev/shm is unavailable/too small
+artio.library.aeron.channel=aeron:ipc?term-length=8388608
+metrics.aeron.channel=aeron:ipc?term-length=65536
 
 # Metrics
 metrics.publish.interval=500     # Publish WebSocket snapshot every N orders

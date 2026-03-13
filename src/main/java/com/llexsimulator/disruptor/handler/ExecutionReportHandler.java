@@ -1,6 +1,7 @@
 package com.llexsimulator.disruptor.handler;
 
 import com.llexsimulator.disruptor.OrderEvent;
+import com.llexsimulator.engine.FixConnection;
 import com.llexsimulator.engine.OrderSessionRegistry;
 import com.llexsimulator.order.ExecIdGenerator;
 import com.llexsimulator.order.OrderIdGenerator;
@@ -12,14 +13,10 @@ import com.llexsimulator.sbe.OrdStatus;
 import com.lmax.disruptor.EventHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quickfix.Session;
-import quickfix.SessionID;
-import quickfix.SessionNotFound;
-import quickfix.field.*;
+import uk.co.real_logic.artio.Pressure;
+import uk.co.real_logic.artio.builder.ExecutionReportEncoder;
+import uk.co.real_logic.artio.fields.UtcTimestampEncoder;
 
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -37,6 +34,8 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
     // Scratch byte arrays for zero-GC string construction
     private final byte[] orderIdBytes = new byte[36];
     private final byte[] execIdBytes  = new byte[36];
+    private final ExecutionReportEncoder executionReport = new ExecutionReportEncoder();
+    private final UtcTimestampEncoder transactTimeEncoder = new UtcTimestampEncoder();
 
     public ExecutionReportHandler(OrderSessionRegistry sessionRegistry,
                                   OrderRepository orderRepository) {
@@ -148,8 +147,8 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
                           FillBehaviorType behavior,
                           boolean terminalAction) {
         OrderState state = orderRepository.get(corrId);
-        SessionID  sid   = sessionRegistry.getSessionId(sessionId);
-        if (sid == null) {
+        FixConnection connection = sessionRegistry.get(sessionId);
+        if (connection == null || connection.writer() == null) {
             log.warn("No session for connId={} (correlationId={})", sessionId, corrId);
             orderRepository.release(corrId);
             return;
@@ -163,14 +162,12 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
         boolean filled = leavesQty == 0;
         char fixSide   = side == com.llexsimulator.sbe.OrderSide.BUY ? '1' : '2';
 
-        quickfix.fix44.ExecutionReport report = buildExecReport(
+        sendExecutionReport(connection, executionReport, transactTimeEncoder,
                 clOrdId, orderIdBytes, execIdBytes, symbol, fixSide,
                 orderQty, price, fillQty, fillPrice, cumQty, leavesQty,
                 filled ? ExecType.FILL : ExecType.PARTIAL_FILL,
                 filled ? OrdStatus.FILLED : OrdStatus.PARTIALLY_FILLED,
-                0, behavior);
-
-        trySend(report, sid);
+                0);
 
         if (state != null) {
             state.setCumQty(cumQty);
@@ -183,8 +180,8 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
                             com.llexsimulator.sbe.OrderSide side,
                             long orderQty, long price,
                             com.llexsimulator.sbe.RejectReason reason) {
-        SessionID sid = sessionRegistry.getSessionId(sessionId);
-        if (sid == null) {
+        FixConnection connection = sessionRegistry.get(sessionId);
+        if (connection == null || connection.writer() == null) {
             log.warn("No session for reject connId={} (correlationId={})", sessionId, corrId);
             orderRepository.release(corrId);
             return;
@@ -194,21 +191,19 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
         execIdGen.nextId(execIdBytes, 0);
         char fixSide = side == com.llexsimulator.sbe.OrderSide.BUY ? '1' : '2';
 
-        quickfix.fix44.ExecutionReport report = buildExecReport(
+        sendExecutionReport(connection, executionReport, transactTimeEncoder,
                 clOrdId, orderIdBytes, execIdBytes, symbol, fixSide,
                 orderQty, price, 0L, 0L, 0L, orderQty,
                 ExecType.REJECTED, OrdStatus.REJECTED,
-                mapRejectReason(reason), FillBehaviorType.REJECT);
-
-        trySend(report, sid);
+                mapRejectReason(reason));
         orderRepository.release(corrId);
     }
 
     private void sendCancel(long corrId, long sessionId, byte[] clOrdId, byte[] symbol,
                             com.llexsimulator.sbe.OrderSide side,
                             long orderQty, long price, long cumQty) {
-        SessionID sid = sessionRegistry.getSessionId(sessionId);
-        if (sid == null) {
+        FixConnection connection = sessionRegistry.get(sessionId);
+        if (connection == null || connection.writer() == null) {
             log.warn("No session for cancel connId={} (correlationId={})", sessionId, corrId);
             orderRepository.release(corrId);
             return;
@@ -218,62 +213,73 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
         execIdGen.nextId(execIdBytes, 0);
         char fixSide = side == com.llexsimulator.sbe.OrderSide.BUY ? '1' : '2';
 
-        quickfix.fix44.ExecutionReport report = buildExecReport(
+        sendExecutionReport(connection, executionReport, transactTimeEncoder,
                 clOrdId, orderIdBytes, execIdBytes, symbol, fixSide,
                 orderQty, price, 0L, 0L, cumQty, 0L,
                 ExecType.CANCELED, OrdStatus.CANCELED,
-                0, FillBehaviorType.PARTIAL_THEN_CANCEL);
-
-        trySend(report, sid);
+                0);
         orderRepository.release(corrId);
     }
 
-    private quickfix.fix44.ExecutionReport buildExecReport(
+    private void sendExecutionReport(
+            FixConnection connection,
+            ExecutionReportEncoder report,
+            UtcTimestampEncoder timestampEncoder,
             byte[] clOrdId, byte[] orderId, byte[] execId, byte[] symbol,
             char side, long orderQty, long price, long lastQty, long lastPx,
             long cumQty, long leavesQty,
             ExecType execType, OrdStatus ordStatus,
-            int ordRejReason, FillBehaviorType behavior) {
+            int ordRejReason) {
 
-        // QuickFIX/J allocates here — unavoidable; everything upstream is zero-GC
-        quickfix.fix44.ExecutionReport er = new quickfix.fix44.ExecutionReport(
-                new OrderID(bytesToTrimmedString(orderId, 36)),
-                new ExecID(bytesToTrimmedString(execId, 36)),
-                new quickfix.field.ExecType(mapExecType(execType)),
-                new quickfix.field.OrdStatus(mapOrdStatus(ordStatus)),
-                new Side(side),
-                new LeavesQty(leavesQty / 10_000.0),
-                new CumQty(cumQty / 10_000.0),
-                new AvgPx(cumQty > 0 ? (lastPx / 100_000_000.0) : 0.0)
-        );
-        er.set(new ClOrdID(bytesToTrimmedString(clOrdId, 36)));
-        er.set(new Symbol(bytesToTrimmedString(symbol, 16)));
-        er.set(new OrderQty(orderQty / 10_000.0));
-        if (price > 0)   er.set(new Price(price / 100_000_000.0));
-        if (lastQty > 0) er.set(new LastQty(lastQty / 10_000.0));
-        if (lastPx > 0)  er.set(new LastPx(lastPx / 100_000_000.0));
-        er.set(new TransactTime(LocalDateTime.now(ZoneOffset.UTC)));
-        if (ordRejReason > 0) er.set(new OrdRejReason(ordRejReason));
-        // Custom tag 9871: fill behavior name for UI display
-        er.setString(9871, behavior.name());
-        return er;
-    }
+        report.reset();
+        report.orderID(orderId, orderId.length)
+              .execID(execId, execId.length)
+              .execType(mapExecType(execType))
+              .ordStatus(mapOrdStatus(ordStatus))
+              .side(side)
+              .leavesQty(leavesQty, 4)
+              .cumQty(cumQty, 4)
+              .avgPx(cumQty > 0 ? lastPx : 0L, 8)
+              .clOrdID(clOrdId, clOrdId.length);
+        report.instrument().symbol(symbol, trimmedLength(symbol, 16));
+        report.orderQtyData().orderQty(orderQty, 4);
 
-    private void trySend(quickfix.Message report, SessionID sid) {
-        try {
-            Session.sendToTarget(report, sid);
-        } catch (SessionNotFound e) {
-            log.warn("Session not found when sending ExecutionReport: {}", sid);
+        if (price > 0) {
+            report.price(price, 8);
+        }
+        if (lastQty > 0) {
+            report.lastQty(lastQty, 4);
+        }
+        if (lastPx > 0) {
+            report.lastPx(lastPx, 8);
+        }
+        if (ordRejReason > 0) {
+            report.ordRejReason(ordRejReason);
+        }
+
+        int timestampLength = timestampEncoder.encode(System.currentTimeMillis());
+        report.transactTime(timestampEncoder.buffer(), timestampLength);
+        if (connection.session() != null) {
+            connection.session().prepare(report.header());
+        }
+
+        long result = 0L;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            result = connection.writer().send(report, connection.sequenceIndex());
+            if (!Pressure.isBackPressured(result) && result >= 0L) {
+                return;
+            }
+            Thread.onSpinWait();
+        }
+
+        if (Pressure.isBackPressured(result)) {
+            log.warn("Back pressured while sending ExecutionReport: session={} result={}", connection.sessionKey(), result);
+        } else {
+            log.warn("Failed to send ExecutionReport: session={} result={}", connection.sessionKey(), result);
         }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
-
-    private static String bytesToTrimmedString(byte[] bytes, int len) {
-        int end = len;
-        while (end > 0 && (bytes[end - 1] == 0 || bytes[end - 1] == ' ')) end--;
-        return new String(bytes, 0, end, StandardCharsets.US_ASCII);
-    }
 
     private static char mapExecType(ExecType t) {
         return switch (t) {
@@ -310,5 +316,13 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
             case SIMULATOR_REJECT -> 99;
             default               -> 0;
         };
+    }
+
+    private static int trimmedLength(byte[] bytes, int maxLength) {
+        int end = maxLength;
+        while (end > 0 && (bytes[end - 1] == 0 || bytes[end - 1] == ' ')) {
+            end--;
+        }
+        return end;
     }
 }

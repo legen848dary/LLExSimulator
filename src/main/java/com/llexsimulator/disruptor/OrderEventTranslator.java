@@ -1,18 +1,15 @@
 package com.llexsimulator.disruptor;
 
+import com.llexsimulator.engine.FixConnection;
 import com.llexsimulator.sbe.*;
 import com.lmax.disruptor.EventTranslatorVararg;
-import quickfix.FieldNotFound;
-import quickfix.Message;
-import quickfix.SessionID;
-import quickfix.field.*;
-
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicLong;
+import uk.co.real_logic.artio.decoder.NewOrderSingleDecoder;
+import uk.co.real_logic.artio.decoder.OrderCancelRequestDecoder;
+import uk.co.real_logic.artio.fields.ReadOnlyDecimalFloat;
 
 /**
- * Translates an incoming QuickFIX/J {@link Message} into the pre-allocated
+ * Translates an incoming Artio FIX decoder into the pre-allocated
  * {@link OrderEvent} ring-buffer slot.
  *
  * <p>All scratch arrays are {@code byte[]} since SBE fixed-length char fields
@@ -21,8 +18,19 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class OrderEventTranslator implements EventTranslatorVararg<OrderEvent> {
 
     private static final AtomicLong CORRELATION_COUNTER = new AtomicLong(0);
+    private static final long[] POW10 = {
+            1L,
+            10L,
+            100L,
+            1_000L,
+            10_000L,
+            100_000L,
+            1_000_000L,
+            10_000_000L,
+            100_000_000L
+    };
 
-    // Scratch byte arrays (single QuickFIX/J acceptor thread — no sync needed)
+    // Scratch byte arrays (single Artio library-thread handler instance — no sync needed)
     private final byte[] symbolBuf  = new byte[16];
     private final byte[] clOrdBuf   = new byte[36];
     private final byte[] senderBuf  = new byte[16];
@@ -30,10 +38,10 @@ public final class OrderEventTranslator implements EventTranslatorVararg<OrderEv
 
     @Override
     public void translateTo(OrderEvent event, long sequence, Object... args) {
-        Message   message       = (Message)   args[0];
-        SessionID sessionId     = (SessionID) args[1];
-        long      sessionConnId = (long)      args[2];
-        long      arrivalNs     = (long)      args[3];
+        Object        decodedMessage = args[0];
+        FixConnection connection     = (FixConnection) args[1];
+        long          arrivalNs      = (long) args[2];
+        long          sessionConnId  = connection.connectionId();
 
         event.correlationId       = CORRELATION_COUNTER.incrementAndGet();
         event.sessionConnectionId = sessionConnId;
@@ -48,55 +56,42 @@ public final class OrderEventTranslator implements EventTranslatorVararg<OrderEv
                .sessionConnectionId(sessionConnId)
                .arrivalTimeNs(arrivalNs);
 
-        // clOrdId
-        try {
-            copyStringToBytes(message.getString(ClOrdID.FIELD), clOrdBuf, 36);
-        } catch (FieldNotFound e) { fillBytes(clOrdBuf, 36, (byte) ' '); }
-        encoder.putClOrdId(clOrdBuf, 0);
+        if (decodedMessage instanceof NewOrderSingleDecoder decoder) {
+            copyCharsToBytes(decoder.clOrdID(), decoder.clOrdIDLength(), clOrdBuf, 36);
+            copyCharsToBytes(decoder.symbol(), decoder.symbolLength(), symbolBuf, 16);
+            encoder.side(mapSide(decoder.side()));
+            encoder.orderType(mapOrdType(decoder.ordType()));
+            encoder.timeInForce(decoder.hasTimeInForce()
+                    ? mapTif(decoder.timeInForce())
+                    : com.llexsimulator.sbe.TimeInForce.DAY);
+            encoder.orderQty(toScaledLong(decoder.orderQty(), 4));
+            encoder.price(decoder.hasPrice() ? toScaledLong(decoder.price(), 8) : 0L);
+            encoder.stopPx(decoder.hasStopPx() ? toScaledLong(decoder.stopPx(), 8) : 0L);
+            encoder.transactTimeNs(arrivalNs);
+        } else if (decodedMessage instanceof OrderCancelRequestDecoder decoder) {
+            copyCharsToBytes(decoder.clOrdID(), decoder.clOrdIDLength(), clOrdBuf, 36);
+            copyCharsToBytes(decoder.symbol(), decoder.symbolLength(), symbolBuf, 16);
+            encoder.side(mapSide(decoder.side()));
+            encoder.orderType(OrderType.LIMIT);
+            encoder.timeInForce(com.llexsimulator.sbe.TimeInForce.DAY);
+            encoder.orderQty(0L);
+            encoder.price(0L);
+            encoder.stopPx(0L);
+            encoder.transactTimeNs(arrivalNs);
+        } else {
+            throw new IllegalArgumentException("Unsupported FIX decoder: " + decodedMessage.getClass().getName());
+        }
 
-        // symbol
-        try {
-            copyStringToBytes(message.getString(Symbol.FIELD), symbolBuf, 16);
-        } catch (FieldNotFound e) { fillBytes(symbolBuf, 16, (byte) ' '); }
+        encoder.putClOrdId(clOrdBuf, 0);
         encoder.putSymbol(symbolBuf, 0);
 
-        // side
-        try { encoder.side(mapSide(message.getChar(Side.FIELD))); }
-        catch (FieldNotFound e) { encoder.side(OrderSide.BUY); }
-
-        // order type
-        try { encoder.orderType(mapOrdType(message.getChar(OrdType.FIELD))); }
-        catch (FieldNotFound e) { encoder.orderType(OrderType.LIMIT); }
-
-        // time in force — use fully-qualified SBE type to avoid ambiguity with QFJ field
-        try { encoder.timeInForce(mapTif(message.getChar(quickfix.field.TimeInForce.FIELD))); }
-        catch (FieldNotFound e) { encoder.timeInForce(com.llexsimulator.sbe.TimeInForce.DAY); }
-
-        // orderQty (qty × 10^4)
-        try { encoder.orderQty((long)(message.getDouble(OrderQty.FIELD) * 10_000L)); }
-        catch (FieldNotFound e) { encoder.orderQty(0L); }
-
-        // price (price × 10^8)
-        try { encoder.price((long)(message.getDouble(Price.FIELD) * 100_000_000L)); }
-        catch (FieldNotFound e) { encoder.price(0L); }
-
-        // stopPx
-        try { encoder.stopPx((long)(message.getDouble(StopPx.FIELD) * 100_000_000L)); }
-        catch (FieldNotFound e) { encoder.stopPx(0L); }
-
-        // transactTime
-        try {
-            LocalDateTime ldt = message.getUtcTimeStamp(TransactTime.FIELD);
-            encoder.transactTimeNs(ldt.toEpochSecond(ZoneOffset.UTC) * 1_000_000_000L);
-        } catch (FieldNotFound e) { encoder.transactTimeNs(arrivalNs); }
-
         // FIX version
-        encoder.fixVersion(mapBeginString(sessionId.getBeginString()));
+        encoder.fixVersion(mapBeginString(connection.beginString()));
 
         // sender / target compId
-        copyStringToBytes(sessionId.getSenderCompID(), senderBuf, 16);
+        copyStringToBytes(connection.senderCompId(), senderBuf, 16);
         encoder.putSenderCompId(senderBuf, 0);
-        copyStringToBytes(sessionId.getTargetCompID(), targetBuf, 16);
+        copyStringToBytes(connection.targetCompId(), targetBuf, 16);
         encoder.putTargetCompId(targetBuf, 0);
 
         // Re-wrap the NOS *decoder* so downstream handlers can read the just-encoded data
@@ -149,6 +144,30 @@ public final class OrderEventTranslator implements EventTranslatorVararg<OrderEv
         int n = Math.min(src.length(), len);
         for (int i = 0; i < n; i++)  dst[i] = (byte) src.charAt(i);
         for (int i = n; i < len; i++) dst[i] = (byte) ' ';
+    }
+
+    private static void copyCharsToBytes(char[] src, int srcLen, byte[] dst, int dstLen) {
+        int n = Math.min(srcLen, dstLen);
+        for (int i = 0; i < n; i++) {
+            dst[i] = (byte) src[i];
+        }
+        for (int i = n; i < dstLen; i++) {
+            dst[i] = (byte) ' ';
+        }
+    }
+
+    private static long toScaledLong(ReadOnlyDecimalFloat value, int targetScale) {
+        long unscaled = value.value();
+        int scale = value.scale();
+        if (unscaled == 0L) {
+            return 0L;
+        }
+        if (scale == targetScale) {
+            return unscaled;
+        }
+        int delta = Math.abs(targetScale - scale);
+        long factor = delta < POW10.length ? POW10[delta] : 1L;
+        return scale < targetScale ? unscaled * factor : unscaled / factor;
     }
 
     static void fillBytes(byte[] dst, int len, byte b) {
