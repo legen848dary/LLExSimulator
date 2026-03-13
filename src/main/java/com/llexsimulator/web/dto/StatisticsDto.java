@@ -6,6 +6,7 @@ public final class StatisticsDto {
     public long   execReportsSent;
     public long   fillsSent;
     public long   rejectsSent;
+    public long   cancelsSent;
     public long   p50LatencyUs;
     public long   p99LatencyUs;
     public long   p999LatencyUs;

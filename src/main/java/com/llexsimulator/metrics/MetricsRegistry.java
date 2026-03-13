@@ -23,10 +23,11 @@ public final class MetricsRegistry {
     private final LongAdder ordersReceived  = new LongAdder();
     private final LongAdder fillsSent       = new LongAdder();
     private final LongAdder rejectsSent     = new LongAdder();
+    private final LongAdder cancelsSent     = new LongAdder();
     private final LongAdder execReportsSent = new LongAdder();
 
-    // Pre-allocated snapshot array: [orders, execReports, fills, rejects, p50, p99, p999, max, tps]
-    private final long[] snapshotBuf = new long[9];
+    // Pre-allocated snapshot array: [orders, execReports, fills, rejects, cancels, p50, p99, p999, max, tps]
+    private final long[] snapshotBuf = new long[10];
 
     private final ThroughputTracker throughputTracker;
 
@@ -43,31 +44,34 @@ public final class MetricsRegistry {
     public void incrementOrdersReceived()  { ordersReceived.increment(); }
     public void incrementFills()           { fillsSent.increment(); execReportsSent.increment(); }
     public void incrementRejects()         { rejectsSent.increment(); execReportsSent.increment(); }
+    public void incrementCancels()         { cancelsSent.increment(); execReportsSent.increment(); }
 
     public void reset() {
         latencyHistogram.reset();
         ordersReceived.reset();
         fillsSent.reset();
         rejectsSent.reset();
+        cancelsSent.reset();
         execReportsSent.reset();
         throughputTracker.reset();
         Arrays.fill(snapshotBuf, 0L);
     }
 
     /**
-     * Returns a pre-allocated {@code long[9]} snapshot.
-     * Indices: [ordersReceived, execReports, fills, rejects, p50ns, p99ns, p999ns, maxNs, tps]
+     * Returns a pre-allocated {@code long[10]} snapshot.
+     * Indices: [ordersReceived, execReports, fills, rejects, cancels, p50ns, p99ns, p999ns, maxNs, tps]
      */
     public long[] snapshot() {
         snapshotBuf[0] = ordersReceived.sum();
         snapshotBuf[1] = execReportsSent.sum();
         snapshotBuf[2] = fillsSent.sum();
         snapshotBuf[3] = rejectsSent.sum();
-        snapshotBuf[4] = latencyHistogram.getValueAtPercentile(50.0);
-        snapshotBuf[5] = latencyHistogram.getValueAtPercentile(99.0);
-        snapshotBuf[6] = latencyHistogram.getValueAtPercentile(99.9);
-        snapshotBuf[7] = latencyHistogram.getMaxValue();
-        snapshotBuf[8] = throughputTracker.getPerSecond();
+        snapshotBuf[4] = cancelsSent.sum();
+        snapshotBuf[5] = latencyHistogram.getValueAtPercentile(50.0);
+        snapshotBuf[6] = latencyHistogram.getValueAtPercentile(99.0);
+        snapshotBuf[7] = latencyHistogram.getValueAtPercentile(99.9);
+        snapshotBuf[8] = latencyHistogram.getMaxValue();
+        snapshotBuf[9] = throughputTracker.getPerSecond();
         return snapshotBuf;
     }
 
@@ -75,6 +79,7 @@ public final class MetricsRegistry {
     public long getOrdersReceived()  { return ordersReceived.sum(); }
     public long getFillsSent()       { return fillsSent.sum(); }
     public long getRejectsSent()     { return rejectsSent.sum(); }
+    public long getCancelsSent()     { return cancelsSent.sum(); }
     public long getExecReportsSent() { return execReportsSent.sum(); }
     public long getP50Ns()           { return latencyHistogram.getValueAtPercentile(50.0); }
     public long getP99Ns()           { return latencyHistogram.getValueAtPercentile(99.0); }

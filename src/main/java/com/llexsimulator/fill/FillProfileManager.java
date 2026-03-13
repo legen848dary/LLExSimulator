@@ -44,6 +44,9 @@ public final class FillProfileManager {
                 "RANDOM_FILL", 0, 1, 0, null, 50, 100, 0, 5, 0));
         createOrUpdate(new FillProfileDto("price-improvement", "Fill with 1bp price improvement",
                 "PRICE_IMPROVEMENT", 10_000, 1, 0, null, 0, 100, 0, 0, 1));
+
+        // Activate the immediate-full-fill profile by default
+        activate("immediate-full-fill");
     }
 
     public void createOrUpdate(FillProfileDto dto) {

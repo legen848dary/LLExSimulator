@@ -48,6 +48,7 @@ public final class StatisticsHandler {
         dto.execReportsSent  = registry.getExecReportsSent();
         dto.fillsSent        = registry.getFillsSent();
         dto.rejectsSent      = registry.getRejectsSent();
+        dto.cancelsSent      = registry.getCancelsSent();
         dto.p50LatencyUs     = registry.getP50Ns()  / 1000;
         dto.p99LatencyUs     = registry.getP99Ns()  / 1000;
         dto.p999LatencyUs    = registry.getP999Ns() / 1000;

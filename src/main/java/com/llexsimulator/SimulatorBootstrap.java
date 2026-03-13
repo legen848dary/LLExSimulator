@@ -89,9 +89,14 @@ public final class SimulatorBootstrap {
         // 7 — Web server
         webServer = new WebServer(config, metricsRegistry, sessionRegistry, profileManager, disruptorPipeline);
 
+        // 7.5 — Wire order event broadcast callback (before FIX engine starts)
+        metricsPublishHandler.setOrderEventCallback(json ->
+                webServer.getVertx().runOnContext(v -> webServer.getBroadcaster().broadcast(json)));
+
         // 8 — Metrics subscriber (Aeron IPC → WebSocket broadcast)
         metricsSubscriber = new MetricsSubscriber(
-                aeronContext, webServer.getBroadcaster(), webServer.getVertx(), config.metricsAeronChannel());
+                aeronContext, webServer.getBroadcaster(), webServer.getVertx(),
+                metricsRegistry, config.metricsAeronChannel());
         Thread.ofVirtual().name("metrics-subscriber").start(metricsSubscriber);
 
         // 9 — FIX engine (last — everything must be ready before accepting connections)

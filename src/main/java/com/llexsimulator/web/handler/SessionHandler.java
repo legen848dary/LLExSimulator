@@ -5,7 +5,6 @@ import com.llexsimulator.engine.FixConnection;
 import com.llexsimulator.engine.OrderSessionRegistry;
 import io.vertx.core.Handler;
 import io.vertx.ext.web.RoutingContext;
-import uk.co.real_logic.artio.messages.DisconnectReason;
 import uk.co.real_logic.artio.session.Session;
 
 import java.util.ArrayList;
@@ -54,8 +53,9 @@ public final class SessionHandler {
             boolean found = false;
             for (FixConnection connection : registry.getAllConnections()) {
                 if (connection.sessionKey().equals(sessionIdStr)) {
-                    if (connection.writer() != null) {
-                        connection.writer().requestDisconnect(DisconnectReason.ADMIN_API_DISCONNECT);
+                    Session session = connection.session();
+                    if (session != null) {
+                        session.requestDisconnect();
                         found = true;
                     }
                     break;

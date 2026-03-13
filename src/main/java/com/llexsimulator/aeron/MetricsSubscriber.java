@@ -1,5 +1,6 @@
 package com.llexsimulator.aeron;
 
+import com.llexsimulator.metrics.MetricsRegistry;
 import com.llexsimulator.sbe.MessageHeaderDecoder;
 import com.llexsimulator.sbe.MetricsSnapshotDecoder;
 import com.llexsimulator.web.WebSocketBroadcaster;
@@ -14,9 +15,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Subscribes to the Aeron IPC metrics stream and forwards decoded snapshots
  * as JSON to all WebSocket clients via {@link WebSocketBroadcaster}.
- *
- * <p>Runs on a virtual thread. The JSON is built in a pre-allocated
- * {@link StringBuilder} — no new heap objects per snapshot.
+ * Cancels are appended from {@link MetricsRegistry} since they are not in the SBE schema.
  */
 public final class MetricsSubscriber implements Runnable {
 
@@ -26,16 +25,19 @@ public final class MetricsSubscriber implements Runnable {
     private final Subscription           subscription;
     private final WebSocketBroadcaster   broadcaster;
     private final Vertx                  vertx;
+    private final MetricsRegistry        metricsRegistry;
     private final MessageHeaderDecoder   headerDecoder  = new MessageHeaderDecoder();
     private final MetricsSnapshotDecoder snapshotDecoder = new MetricsSnapshotDecoder();
     private final StringBuilder          jsonBuf        = new StringBuilder(512);
 
     private volatile boolean running = true;
 
-    public MetricsSubscriber(AeronContext ctx, WebSocketBroadcaster broadcaster, Vertx vertx, String channel) {
-        this.subscription = ctx.getAeron().addSubscription(channel, STREAM_ID);
-        this.broadcaster  = broadcaster;
-        this.vertx        = vertx;
+    public MetricsSubscriber(AeronContext ctx, WebSocketBroadcaster broadcaster, Vertx vertx,
+                              MetricsRegistry metricsRegistry, String channel) {
+        this.subscription    = ctx.getAeron().addSubscription(channel, STREAM_ID);
+        this.broadcaster     = broadcaster;
+        this.vertx           = vertx;
+        this.metricsRegistry = metricsRegistry;
         log.info("MetricsSubscriber ready on {} stream {}", channel, STREAM_ID);
     }
 
@@ -45,7 +47,7 @@ public final class MetricsSubscriber implements Runnable {
         while (running && !Thread.currentThread().isInterrupted()) {
             int fragments = subscription.poll(handler, 10);
             if (fragments == 0) {
-                Thread.onSpinWait(); // yield briefly without sleeping
+                Thread.onSpinWait();
             }
         }
     }
@@ -53,7 +55,6 @@ public final class MetricsSubscriber implements Runnable {
     private void onFragment(DirectBuffer buffer, int offset, int length, Header header) {
         snapshotDecoder.wrapAndApplyHeader(buffer, offset, headerDecoder);
 
-        // Build JSON without String.format / concatenation heap pressure
         jsonBuf.setLength(0);
         jsonBuf.append("{\"type\":\"metrics\"")
                .append(",\"snapshotTimeNs\":").append(snapshotDecoder.snapshotTimeNs())
@@ -61,6 +62,7 @@ public final class MetricsSubscriber implements Runnable {
                .append(",\"execReportsSent\":").append(snapshotDecoder.executionReportsSent())
                .append(",\"fills\":").append(snapshotDecoder.fillsCount())
                .append(",\"rejects\":").append(snapshotDecoder.rejectsCount())
+               .append(",\"cancels\":").append(metricsRegistry.getCancelsSent())
                .append(",\"p50Us\":").append(snapshotDecoder.p50LatencyNs() / 1000)
                .append(",\"p99Us\":").append(snapshotDecoder.p99LatencyNs() / 1000)
                .append(",\"p999Us\":").append(snapshotDecoder.p999LatencyNs() / 1000)
@@ -68,12 +70,9 @@ public final class MetricsSubscriber implements Runnable {
                .append(",\"throughputPerSec\":").append(snapshotDecoder.throughputPerSec())
                .append("}");
 
-        String json = jsonBuf.toString(); // one String allocation per snapshot — acceptable
-
-        // Must dispatch to Vert.x event loop thread for WebSocket writes
+        String json = jsonBuf.toString();
         vertx.runOnContext(v -> broadcaster.broadcast(json));
     }
 
     public void stop() { running = false; }
 }
-

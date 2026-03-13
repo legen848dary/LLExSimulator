@@ -92,6 +92,33 @@ createApp({
         </div>
       </div>
 
+      <!-- ── Order Count Cards Row ────────────────────────────────────────── -->
+      <div class="col-span-12 bg-dark-800 rounded-xl border border-dark-600 px-5 py-4">
+        <p class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">Order Counts — Simulator Totals</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          <div class="bg-dark-700 rounded-lg px-4 py-3 border border-dark-600">
+            <p class="text-xs text-slate-400 mb-1">Received</p>
+            <p class="text-xl font-bold font-mono text-white">{{ metrics.orders.toLocaleString() }}</p>
+          </div>
+          <div class="bg-dark-700 rounded-lg px-4 py-3 border border-dark-600">
+            <p class="text-xs text-slate-400 mb-1">Acked (Exec Reports)</p>
+            <p class="text-xl font-bold font-mono text-brand-400">{{ metrics.execReports.toLocaleString() }}</p>
+          </div>
+          <div class="bg-dark-700 rounded-lg px-4 py-3 border border-dark-600">
+            <p class="text-xs text-slate-400 mb-1">Filled</p>
+            <p class="text-xl font-bold font-mono text-brand-500">{{ metrics.fills.toLocaleString() }}</p>
+          </div>
+          <div class="bg-dark-700 rounded-lg px-4 py-3 border border-dark-600">
+            <p class="text-xs text-slate-400 mb-1">Rejected</p>
+            <p class="text-xl font-bold font-mono text-red-400">{{ metrics.rejects.toLocaleString() }}</p>
+          </div>
+          <div class="bg-dark-700 rounded-lg px-4 py-3 border border-dark-600">
+            <p class="text-xs text-slate-400 mb-1">Cancelled</p>
+            <p class="text-xl font-bold font-mono text-yellow-400">{{ metrics.cancels.toLocaleString() }}</p>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Left Column: Fill Profile Config + Sessions ───────────────── -->
       <div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
 
@@ -270,7 +297,7 @@ createApp({
 
     const metrics = reactive({
       throughputPerSec: 0, p50Us: 0, p99Us: 0, p999Us: 0, maxUs: 0,
-      fills: 0, rejects: 0, orders: 0
+      fills: 0, rejects: 0, cancels: 0, execReports: 0, orders: 0
     })
 
     const fillRate   = ref('0.0')
@@ -333,12 +360,15 @@ createApp({
       metrics.throughputPerSec = m.throughputPerSec
       metrics.p50Us  = m.p50Us;   metrics.p99Us  = m.p99Us
       metrics.p999Us = m.p999Us;  metrics.maxUs  = m.maxUs
-      metrics.fills  = m.fills;   metrics.rejects = m.rejects
-      metrics.orders = m.ordersReceived
+      metrics.fills       = m.fills        ?? 0
+      metrics.rejects     = m.rejects      ?? 0
+      metrics.cancels     = m.cancels      ?? 0
+      metrics.execReports = m.execReports  ?? 0
+      metrics.orders      = m.ordersReceived ?? 0
 
-      const total = m.fills + m.rejects
-      fillRate.value   = total > 0 ? (m.fills  * 100 / total).toFixed(1) : '0.0'
-      rejectRate.value = total > 0 ? (m.rejects * 100 / total).toFixed(1) : '0.0'
+      const total = metrics.orders
+      fillRate.value   = total > 0 ? (metrics.fills   * 100 / total).toFixed(1) : '0.0'
+      rejectRate.value = total > 0 ? (metrics.rejects * 100 / total).toFixed(1) : '0.0'
 
       // Update chart
       const now = new Date().toLocaleTimeString()
@@ -348,24 +378,23 @@ createApp({
       if (chart) {
         chart.data.labels = latencyHistory.labels
         chart.data.datasets[0].data = latencyHistory.p99
-        chart.update('none') // 'none' = no animation, zero overhead
+        chart.update('none')
       }
     }
 
     function toMetricsSnapshot(source) {
       if (!source) return null
-      if (typeof source.ordersReceived === 'undefined' && typeof source.orders === 'number') {
-        return source
-      }
       return {
-        throughputPerSec: source.throughputPerSec ?? 0,
-        p50Us: source.p50LatencyUs ?? source.p50Us ?? 0,
-        p99Us: source.p99LatencyUs ?? source.p99Us ?? 0,
-        p999Us: source.p999LatencyUs ?? source.p999Us ?? 0,
-        maxUs: source.maxLatencyUs ?? source.maxUs ?? 0,
-        fills: source.fillsSent ?? source.fills ?? 0,
-        rejects: source.rejectsSent ?? source.rejects ?? 0,
-        ordersReceived: source.ordersReceived ?? source.orders ?? 0,
+        throughputPerSec:  source.throughputPerSec ?? 0,
+        p50Us:             source.p50LatencyUs  ?? source.p50Us   ?? 0,
+        p99Us:             source.p99LatencyUs  ?? source.p99Us   ?? 0,
+        p999Us:            source.p999LatencyUs ?? source.p999Us  ?? 0,
+        maxUs:             source.maxLatencyUs  ?? source.maxUs   ?? 0,
+        fills:             source.fillsSent     ?? source.fills   ?? 0,
+        rejects:           source.rejectsSent   ?? source.rejects ?? 0,
+        cancels:           source.cancelsSent   ?? source.cancels ?? 0,
+        execReports:       source.execReportsSent ?? source.execReports ?? 0,
+        ordersReceived:    source.ordersReceived ?? source.orders ?? 0,
       }
     }
 
@@ -463,7 +492,8 @@ createApp({
 
     async function disconnectSession(id) {
       await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
-      await fetchSessions()
+      // Disconnect is async — give Artio time to process before refreshing
+      setTimeout(fetchSessions, 1500)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
