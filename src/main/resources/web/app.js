@@ -76,19 +76,19 @@ createApp({
           <p class="text-xs text-slate-500">orders/sec</p>
         </div>
         <div class="bg-dark-800 rounded-xl p-4 border border-dark-600">
+          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">p80 Latency</p>
+          <p class="text-2xl font-bold font-mono text-brand-500">{{ metrics.p80Us.toLocaleString() }}</p>
+          <p class="text-xs text-slate-500">µs · rolling window</p>
+        </div>
+        <div class="bg-dark-800 rounded-xl p-4 border border-dark-600">
+          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">p90 Latency</p>
+          <p class="text-2xl font-bold font-mono text-yellow-400">{{ metrics.p90Us.toLocaleString() }}</p>
+          <p class="text-xs text-slate-500">µs · rolling window</p>
+        </div>
+        <div class="bg-dark-800 rounded-xl p-4 border border-dark-600">
           <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">p99 Latency</p>
-          <p class="text-2xl font-bold font-mono" :class="metrics.p99Us < 100 ? 'text-brand-500' : metrics.p99Us < 500 ? 'text-yellow-400' : 'text-red-400'">{{ metrics.p99Us.toLocaleString() }}</p>
-          <p class="text-xs text-slate-500">microseconds</p>
-        </div>
-        <div class="bg-dark-800 rounded-xl p-4 border border-dark-600">
-          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Fill Rate</p>
-          <p class="text-2xl font-bold font-mono text-brand-500">{{ fillRate }}%</p>
-          <p class="text-xs text-slate-500">{{ metrics.fills.toLocaleString() }} fills</p>
-        </div>
-        <div class="bg-dark-800 rounded-xl p-4 border border-dark-600">
-          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Reject Rate</p>
-          <p class="text-2xl font-bold font-mono text-red-400">{{ rejectRate }}%</p>
-          <p class="text-xs text-slate-500">{{ metrics.rejects.toLocaleString() }} rejects</p>
+          <p class="text-2xl font-bold font-mono" :class="metrics.p99Us < 500 ? 'text-yellow-400' : 'text-red-400'">{{ metrics.p99Us.toLocaleString() }}</p>
+          <p class="text-xs text-slate-500">µs · rolling window</p>
         </div>
       </div>
 
@@ -229,8 +229,8 @@ createApp({
         <div class="bg-dark-800 rounded-xl border border-dark-600 p-5">
           <div class="flex items-center justify-between mb-4">
             <div>
-              <h2 class="font-semibold text-white text-sm">p99 Latency History</h2>
-              <p class="text-xs text-slate-500 mt-1">last 60 dashboard refreshes</p>
+              <h2 class="font-semibold text-white text-sm">Latency Percentiles — History</h2>
+              <p class="text-xs text-slate-500 mt-1">p80 · p90 · p99 · rolling window · last 60 refreshes</p>
             </div>
             <span class="text-xs text-slate-400 font-mono">{{ selectedRefreshSeconds }}s cadence</span>
           </div>
@@ -296,19 +296,17 @@ createApp({
     const orders         = ref([])
 
     const metrics = reactive({
-      throughputPerSec: 0, p50Us: 0, p99Us: 0, p999Us: 0, maxUs: 0,
+      throughputPerSec: 0, p80Us: 0, p90Us: 0, p99Us: 0,
       fills: 0, rejects: 0, cancels: 0, execReports: 0, orders: 0
     })
 
-    const fillRate   = ref('0.0')
-    const rejectRate = ref('0.0')
     const selectedRefreshSeconds = ref(1)
     const metricsRefreshOptions = METRICS_REFRESH_OPTIONS
     const isResettingMetrics = ref(false)
 
     const latencyChart = ref(null)
     let   chart        = null
-    const latencyHistory = { labels: [], p99: [] }
+    const latencyHistory = { labels: [], p80: [], p90: [], p99: [] }
     let metricsRefreshTimer = null
     let pollTimer = null
     let latestMetricsSnapshot = null
@@ -358,26 +356,32 @@ createApp({
       if (!m) return
 
       metrics.throughputPerSec = m.throughputPerSec
-      metrics.p50Us  = m.p50Us;   metrics.p99Us  = m.p99Us
-      metrics.p999Us = m.p999Us;  metrics.maxUs  = m.maxUs
+      metrics.p80Us       = m.p80Us       ?? 0
+      metrics.p90Us       = m.p90Us       ?? 0
+      metrics.p99Us       = m.p99Us       ?? 0
       metrics.fills       = m.fills        ?? 0
       metrics.rejects     = m.rejects      ?? 0
       metrics.cancels     = m.cancels      ?? 0
       metrics.execReports = m.execReports  ?? 0
       metrics.orders      = m.ordersReceived ?? 0
 
-      const total = metrics.orders
-      fillRate.value   = total > 0 ? (metrics.fills   * 100 / total).toFixed(1) : '0.0'
-      rejectRate.value = total > 0 ? (metrics.rejects * 100 / total).toFixed(1) : '0.0'
-
-      // Update chart
+      // Update multi-line chart
       const now = new Date().toLocaleTimeString()
-      if (latencyHistory.labels.length >= 60) { latencyHistory.labels.shift(); latencyHistory.p99.shift() }
+      if (latencyHistory.labels.length >= 60) {
+        latencyHistory.labels.shift()
+        latencyHistory.p80.shift()
+        latencyHistory.p90.shift()
+        latencyHistory.p99.shift()
+      }
       latencyHistory.labels.push(now)
-      latencyHistory.p99.push(m.p99Us)
+      latencyHistory.p80.push(m.p80Us ?? 0)
+      latencyHistory.p90.push(m.p90Us ?? 0)
+      latencyHistory.p99.push(m.p99Us ?? 0)
       if (chart) {
         chart.data.labels = latencyHistory.labels
         chart.data.datasets[0].data = latencyHistory.p99
+        chart.data.datasets[1].data = latencyHistory.p90
+        chart.data.datasets[2].data = latencyHistory.p80
         chart.update('none')
       }
     }
@@ -386,10 +390,9 @@ createApp({
       if (!source) return null
       return {
         throughputPerSec:  source.throughputPerSec ?? 0,
-        p50Us:             source.p50LatencyUs  ?? source.p50Us   ?? 0,
-        p99Us:             source.p99LatencyUs  ?? source.p99Us   ?? 0,
-        p999Us:            source.p999LatencyUs ?? source.p999Us  ?? 0,
-        maxUs:             source.maxLatencyUs  ?? source.maxUs   ?? 0,
+        p80Us:             source.p80LatencyUs  ?? source.p80Us  ?? 0,
+        p90Us:             source.p90LatencyUs  ?? source.p90Us  ?? 0,
+        p99Us:             source.p99LatencyUs  ?? source.p99Us  ?? 0,
         fills:             source.fillsSent     ?? source.fills   ?? 0,
         rejects:           source.rejectsSent   ?? source.rejects ?? 0,
         cancels:           source.cancelsSent   ?? source.cancels ?? 0,
@@ -400,10 +403,14 @@ createApp({
 
     function clearLatencyChart() {
       latencyHistory.labels.length = 0
+      latencyHistory.p80.length = 0
+      latencyHistory.p90.length = 0
       latencyHistory.p99.length = 0
       if (chart) {
         chart.data.labels = latencyHistory.labels
         chart.data.datasets[0].data = latencyHistory.p99
+        chart.data.datasets[1].data = latencyHistory.p90
+        chart.data.datasets[2].data = latencyHistory.p80
         chart.update('none')
       }
     }
@@ -520,20 +527,43 @@ createApp({
           type: 'line',
           data: {
             labels: latencyHistory.labels,
-            datasets: [{
-              label: 'p99 latency (µs)',
-              data: latencyHistory.p99,
-              borderColor: '#22c55e', backgroundColor: '#22c55e18',
-              borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
-            }]
+            datasets: [
+              {
+                label: 'p99',
+                data: latencyHistory.p99,
+                borderColor: '#ef4444', backgroundColor: '#ef444418',
+                borderWidth: 2, pointRadius: 0, fill: false, tension: 0.3
+              },
+              {
+                label: 'p90',
+                data: latencyHistory.p90,
+                borderColor: '#f59e0b', backgroundColor: '#f59e0b18',
+                borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3
+              },
+              {
+                label: 'p80',
+                data: latencyHistory.p80,
+                borderColor: '#22c55e', backgroundColor: '#22c55e18',
+                borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3
+              }
+            ]
           },
           options: {
             responsive: true, maintainAspectRatio: true,
             animation: false,
-            plugins: { legend: { display: false } },
+            plugins: {
+              legend: {
+                display: true,
+                labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 14, padding: 12 }
+              }
+            },
             scales: {
               x: { display: false },
-              y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8', font: { size: 10 } } }
+              y: {
+                grid: { color: '#1e293b' },
+                ticks: { color: '#94a3b8', font: { size: 10 } },
+                title: { display: true, text: 'µs', color: '#64748b', font: { size: 10 } }
+              }
             }
           }
         })
@@ -554,7 +584,7 @@ createApp({
 
     return {
       wsConnected, activeProfile, profiles, selectedProfile, sessions,
-      orders, metrics, fillRate, rejectRate, form, behaviorTypes, rejectReasons,
+      orders, metrics, form, behaviorTypes, rejectReasons,
       showFillPct, showDelay, showReject, showRandom, showPriceImprovement,
       latencyChart, selectedRefreshSeconds, metricsRefreshOptions, isResettingMetrics,
       updateMetricsRefreshInterval, resetMetrics,

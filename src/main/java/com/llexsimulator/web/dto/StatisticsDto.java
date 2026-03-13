@@ -7,10 +7,9 @@ public final class StatisticsDto {
     public long   fillsSent;
     public long   rejectsSent;
     public long   cancelsSent;
-    public long   p50LatencyUs;
+    public long   p80LatencyUs;
+    public long   p90LatencyUs;
     public long   p99LatencyUs;
-    public long   p999LatencyUs;
-    public long   maxLatencyUs;
     public long   throughputPerSec;
     public double fillRatePct;
     public String activeProfile;

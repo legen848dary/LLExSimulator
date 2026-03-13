@@ -63,10 +63,9 @@ public final class MetricsSubscriber implements Runnable {
                .append(",\"fills\":").append(snapshotDecoder.fillsCount())
                .append(",\"rejects\":").append(snapshotDecoder.rejectsCount())
                .append(",\"cancels\":").append(metricsRegistry.getCancelsSent())
-               .append(",\"p50Us\":").append(snapshotDecoder.p50LatencyNs() / 1000)
-               .append(",\"p99Us\":").append(snapshotDecoder.p99LatencyNs() / 1000)
-               .append(",\"p999Us\":").append(snapshotDecoder.p999LatencyNs() / 1000)
-               .append(",\"maxUs\":").append(snapshotDecoder.maxLatencyNs() / 1000)
+               .append(",\"p80Us\":").append(metricsRegistry.getP80Ns() / 1000)
+               .append(",\"p90Us\":").append(metricsRegistry.getP90Ns() / 1000)
+               .append(",\"p99Us\":").append(metricsRegistry.getP99Ns() / 1000)
                .append(",\"throughputPerSec\":").append(snapshotDecoder.throughputPerSec())
                .append("}");
 

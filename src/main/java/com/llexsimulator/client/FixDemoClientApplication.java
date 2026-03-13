@@ -30,6 +30,7 @@ import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -42,6 +43,12 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class FixDemoClientApplication implements Application, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(FixDemoClientApplication.class);
+
+    /** Pool of symbols chosen randomly per order — pre-allocated, zero GC on hot path. */
+    private static final String[] SYMBOLS = {
+        "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
+        "NVDA", "META", "JPM",   "V",    "BAC"
+    };
 
     private final FixDemoClientConfig config;
     private final ScheduledExecutorService senderExecutor;
@@ -79,10 +86,10 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
         long periodNanos = Math.max(1L, 1_000_000_000L / config.ratePerSecond());
         senderExecutor.scheduleAtFixedRate(this::sendOneIfLoggedOn, 0L, periodNanos, TimeUnit.NANOSECONDS);
         statsExecutor.scheduleAtFixedRate(this::logProgress, 5L, 5L, TimeUnit.SECONDS);
-        log.info("Demo client ready: beginString={} senderCompId={} targetCompId={} host={} port={} rate={} msg/s symbol={} side={} qty={} price={}",
+        log.info("Demo client ready: beginString={} senderCompId={} targetCompId={} host={} port={} rate={} msg/s symbol=RANDOM{} side={} qty={} price={}",
                 config.beginString(), config.senderCompId(), config.targetCompId(),
                 config.host(), config.port(), config.ratePerSecond(),
-                config.symbol(), sideName(config.side()), config.orderQty(), config.price());
+                java.util.Arrays.toString(SYMBOLS), sideName(config.side()), config.orderQty(), config.price());
     }
 
     @Override
@@ -199,13 +206,14 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
     }
 
     private NewOrderSingle buildNewOrderSingle(String clOrdId) {
+        String symbol = SYMBOLS[ThreadLocalRandom.current().nextInt(SYMBOLS.length)];
         NewOrderSingle order = new NewOrderSingle(
                 new ClOrdID(clOrdId),
                 new Side(config.side()),
                 new TransactTime(LocalDateTime.now(ZoneOffset.UTC)),
                 new OrdType(OrdType.LIMIT));
         order.set(new HandlInst(HandlInst.AUTOMATED_EXECUTION_ORDER_PRIVATE_NO_BROKER_INTERVENTION));
-        order.set(new Symbol(config.symbol()));
+        order.set(new Symbol(symbol));
         order.set(new OrderQty(config.orderQty()));
         order.set(new Price(config.price()));
         order.set(new TimeInForce(TimeInForce.DAY));

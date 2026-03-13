@@ -15,7 +15,7 @@ class FillProfileManagerTest {
     void seedsBuiltinProfilesAndTracksDefaultActiveName() {
         FillProfileManager manager = new FillProfileManager();
 
-        assertEquals("default", manager.getActiveProfileName());
+        assertEquals("immediate-full-fill", manager.getActiveProfileName());
         assertTrue(manager.getAllProfiles().size() >= 6);
         assertEquals(FillBehaviorType.IMMEDIATE_FULL_FILL, manager.getActiveConfig().behaviorType);
     }

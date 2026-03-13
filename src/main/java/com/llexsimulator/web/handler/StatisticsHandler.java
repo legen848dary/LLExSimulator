@@ -49,10 +49,9 @@ public final class StatisticsHandler {
         dto.fillsSent        = registry.getFillsSent();
         dto.rejectsSent      = registry.getRejectsSent();
         dto.cancelsSent      = registry.getCancelsSent();
-        dto.p50LatencyUs     = registry.getP50Ns()  / 1000;
-        dto.p99LatencyUs     = registry.getP99Ns()  / 1000;
-        dto.p999LatencyUs    = registry.getP999Ns() / 1000;
-        dto.maxLatencyUs     = registry.getMaxLatencyNs() / 1000;
+        dto.p80LatencyUs     = registry.getP80Ns() / 1000;
+        dto.p90LatencyUs     = registry.getP90Ns() / 1000;
+        dto.p99LatencyUs     = registry.getP99Ns() / 1000;
         dto.throughputPerSec = registry.getThroughputPerSec();
         dto.fillRatePct      = dto.ordersReceived > 0
                                ? dto.fillsSent * 100.0 / dto.ordersReceived : 0.0;

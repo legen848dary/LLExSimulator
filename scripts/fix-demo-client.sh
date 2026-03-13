@@ -59,10 +59,10 @@ client_running() {
 }
 
 ensure_jar() {
-    if [[ ! -f "${JAR_PATH}" ]] || find "${PROJECT_ROOT}/src/main" "${PROJECT_ROOT}/build.gradle.kts" "${PROJECT_ROOT}/settings.gradle.kts" -type f -newer "${JAR_PATH}" | grep -q .; then
-        info "Application JAR is missing or stale — building shadow JAR..."
-        (cd "${PROJECT_ROOT}" && ./gradlew --no-daemon shadowJar -x test)
-    fi
+    # Delegate entirely to Gradle — it knows exactly which inputs changed.
+    # When nothing has changed this takes ~1-2 s (Gradle config only, no recompile).
+    info "Verifying JAR is up-to-date (Gradle incremental build)..."
+    (cd "${PROJECT_ROOT}" && ./gradlew --no-daemon -q shadowJar -x test)
 }
 
 rate_arg() {
@@ -136,7 +136,7 @@ cmd_start() {
     fi
 
     info "Starting demo client in background at ${rate} NewOrderSingles/sec..."
-    nohup "${PROJECT_ROOT}/scripts/fix-demo-client.sh" run "${rate}" >"${CONSOLE_LOG}" 2>&1 &
+    LLEXSIM_JAR_READY=1 nohup "${PROJECT_ROOT}/scripts/fix-demo-client.sh" run "${rate}" >"${CONSOLE_LOG}" 2>&1 &
     echo $! >"${PID_FILE}"
     sleep 1
 
@@ -159,7 +159,11 @@ cmd_run() {
     banner "Foreground Run"
     require_java
     ensure_dirs
-    ensure_jar
+
+    # Skip rebuild when called as a subprocess of cmd_start (JAR was just verified)
+    if [[ "${LLEXSIM_JAR_READY:-0}" != "1" ]]; then
+        ensure_jar
+    fi
 
     info "Running demo client in foreground at ${rate} NewOrderSingles/sec..."
     exec_java_cmd "${rate}"
