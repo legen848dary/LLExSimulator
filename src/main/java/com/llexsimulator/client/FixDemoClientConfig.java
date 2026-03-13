@@ -1,10 +1,12 @@
 package com.llexsimulator.client;
 
-import com.llexsimulator.fix.ArtioDictionaryResolver;
-import uk.co.real_logic.artio.library.SessionConfiguration;
+import quickfix.SessionID;
+import quickfix.SessionSettings;
+
+import java.nio.file.Path;
 
 /**
- * Runtime configuration for the Artio-based demo FIX initiator client.
+ * Runtime configuration for the QuickFIX/J-based demo FIX initiator client.
  */
 public record FixDemoClientConfig(
         String host,
@@ -20,7 +22,7 @@ public record FixDemoClientConfig(
         char side,
         double orderQty,
         double price,
-        String artioLogDir,
+        String logDir,
         boolean rawMessageLoggingEnabled
 ) {
 
@@ -41,33 +43,58 @@ public record FixDemoClientConfig(
                 parseSide(stringProp("fix.demo.side", "BUY")),
                 positiveDouble(System.getProperty("fix.demo.orderQty", "100"), "fix.demo.orderQty"),
                 positiveDouble(System.getProperty("fix.demo.price", "100.25"), "fix.demo.price"),
-                stringProp("fix.demo.logDir", "logs/fix-demo-client/artio"),
+                stringProp("fix.demo.logDir", "logs/fix-demo-client/quickfixj"),
                 Boolean.parseBoolean(System.getProperty("fix.demo.rawLoggingEnabled", "false"))
         );
     }
 
-    public SessionConfiguration toSessionConfiguration() {
+    public SessionID toSessionId() {
         validateSupportedBeginString();
-        return SessionConfiguration.builder()
-                .address(host, port)
-                .senderCompId(senderCompId)
-                .targetCompId(targetCompId)
-                .fixDictionary(ArtioDictionaryResolver.resolve())
-                .sequenceNumbersPersistent(false)
-                .resetSeqNum(true)
-                .closedResendInterval(true)
-                .sendRedundantResendRequests(false)
-                .enableLastMsgSeqNumProcessed(false)
-                .disconnectOnFirstMessageNotLogon(true)
-                .timeoutInMs(Math.max(heartBtIntSec * 2_000L, 5_000L))
-                .build();
+        return new SessionID(beginString, senderCompId, targetCompId);
+    }
+
+    public SessionSettings toSessionSettings() {
+        SessionSettings settings = new SessionSettings();
+        SessionID sessionId = toSessionId();
+
+        settings.setString(sessionId, "ConnectionType", "initiator");
+        settings.setString(sessionId, "BeginString", beginString);
+        settings.setString(sessionId, "SenderCompID", senderCompId);
+        settings.setString(sessionId, "TargetCompID", targetCompId);
+        settings.setString(sessionId, "SocketConnectHost", host);
+        settings.setString(sessionId, "SocketConnectPort", Integer.toString(port));
+        settings.setString(sessionId, "HeartBtInt", Integer.toString(heartBtIntSec));
+        settings.setString(sessionId, "ReconnectInterval", Integer.toString(reconnectIntervalSec));
+        settings.setString(sessionId, "StartTime", "00:00:00");
+        settings.setString(sessionId, "EndTime", "00:00:00");
+        settings.setString(sessionId, "TimeZone", "UTC");
+        settings.setString(sessionId, "SocketNodelay", "Y");
+        settings.setString(sessionId, "ResetOnLogon", "Y");
+        settings.setString(sessionId, "ResetOnLogout", "Y");
+        settings.setString(sessionId, "ResetOnDisconnect", "Y");
+        settings.setString(sessionId, "UseDataDictionary", "N");
+        settings.setString(sessionId, "ValidateIncomingMessage", "N");
+        settings.setString(sessionId, "ValidateUserDefinedFields", "N");
+        settings.setString(sessionId, "PersistMessages", "N");
+        settings.setString(sessionId, "FileStorePath", storeDir().toString());
+        settings.setString(sessionId, "FileLogPath", rawLogDir().toString());
+
+        return settings;
     }
 
     private void validateSupportedBeginString() {
         if (!"FIX.4.4".equals(beginString)) {
             throw new IllegalArgumentException(
-                    "The Artio demo client currently supports fix.demo.beginString=FIX.4.4 only (was '" + beginString + "')");
+                    "The QuickFIX/J demo client currently supports fix.demo.beginString=FIX.4.4 only (was '" + beginString + "')");
         }
+    }
+
+    public Path storeDir() {
+        return Path.of(logDir, "store");
+    }
+
+    public Path rawLogDir() {
+        return Path.of(logDir, "messages");
     }
 
     private static String stringProp(String key, String defaultValue) {

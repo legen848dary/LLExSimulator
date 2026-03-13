@@ -42,6 +42,8 @@ dependencies {
     // ── Artio — low-latency FIX engine ───────────────────────────────────────
     implementation("uk.co.real-logic:artio-codecs:$artioVersion")
     implementation("uk.co.real-logic:artio-core:$artioVersion")
+    implementation("org.quickfixj:quickfixj-core:$quickfixVersion")
+    implementation("org.quickfixj:quickfixj-messages-fix44:$quickfixVersion")
     artioCodegen("uk.co.real-logic:artio-codecs:$artioVersion")
     artioCodegen("org.agrona:agrona:$agronaVersion")
     artioCodegen("uk.co.real-logic:sbe-tool:1.32.1")

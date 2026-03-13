@@ -19,6 +19,7 @@ public final class FixConnection {
     private volatile Session session;
     private volatile SessionWriter writer;
     private volatile int sequenceIndex;
+    private volatile int lastSentMsgSeqNum;
     private volatile boolean loggedOn;
 
     FixConnection(long connectionId, Session session, SessionWriter writer) {
@@ -32,6 +33,7 @@ public final class FixConnection {
         this.session = session;
         this.writer = writer;
         this.sequenceIndex = session.sequenceIndex();
+        this.lastSentMsgSeqNum = session.lastSentMsgSeqNum();
         this.loggedOn = true;
     }
 
@@ -75,10 +77,21 @@ public final class FixConnection {
         return loggedOn;
     }
 
+    public synchronized int claimNextOutboundMsgSeqNum() {
+        return ++lastSentMsgSeqNum;
+    }
+
+    public synchronized void rollbackOutboundMsgSeqNum(int claimedMsgSeqNum) {
+        if (lastSentMsgSeqNum == claimedMsgSeqNum) {
+            lastSentMsgSeqNum--;
+        }
+    }
+
     public void updateSession(Session session, SessionWriter writer) {
         this.session = session;
         this.writer = writer;
         this.sequenceIndex = session.sequenceIndex();
+        this.lastSentMsgSeqNum = session.lastSentMsgSeqNum();
         this.loggedOn = true;
     }
 

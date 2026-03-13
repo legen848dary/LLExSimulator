@@ -31,11 +31,7 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
     private final OrderIdGenerator     orderIdGen;
     private final ExecIdGenerator      execIdGen;
 
-    // Scratch byte arrays for zero-GC string construction
-    private final byte[] orderIdBytes = new byte[36];
-    private final byte[] execIdBytes  = new byte[36];
-    private final ExecutionReportEncoder executionReport = new ExecutionReportEncoder();
-    private final UtcTimestampEncoder transactTimeEncoder = new UtcTimestampEncoder();
+    private final ThreadLocal<SendContext> sendContext = ThreadLocal.withInitial(SendContext::new);
 
     public ExecutionReportHandler(OrderSessionRegistry sessionRegistry,
                                   OrderRepository orderRepository) {
@@ -154,16 +150,20 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
             return;
         }
 
-        orderIdGen.nextId(orderIdBytes, 0);
-        execIdGen.nextId(execIdBytes, 0);
+        SendContext sendContext = this.sendContext.get();
+        int orderIdLength = orderIdGen.nextId(sendContext.orderIdBytes, 0);
+        int execIdLength = execIdGen.nextId(sendContext.execIdBytes, 0);
 
         long cumQty    = (state != null) ? state.getCumQty() + fillQty : fillQty;
         long leavesQty = Math.max(0, orderQty - cumQty);
         boolean filled = leavesQty == 0;
         char fixSide   = side == com.llexsimulator.sbe.OrderSide.BUY ? '1' : '2';
 
-        sendExecutionReport(connection, executionReport, transactTimeEncoder,
-                clOrdId, orderIdBytes, execIdBytes, symbol, fixSide,
+        sendExecutionReport(connection, sendContext.executionReport, sendContext.transactTimeEncoder,
+                clOrdId, trimmedLength(clOrdId, 36),
+                sendContext.orderIdBytes, orderIdLength,
+                sendContext.execIdBytes, execIdLength,
+                symbol, fixSide,
                 orderQty, price, fillQty, fillPrice, cumQty, leavesQty,
                 filled ? ExecType.FILL : ExecType.PARTIAL_FILL,
                 filled ? OrdStatus.FILLED : OrdStatus.PARTIALLY_FILLED,
@@ -187,12 +187,16 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
             return;
         }
 
-        orderIdGen.nextId(orderIdBytes, 0);
-        execIdGen.nextId(execIdBytes, 0);
+        SendContext sendContext = this.sendContext.get();
+        int orderIdLength = orderIdGen.nextId(sendContext.orderIdBytes, 0);
+        int execIdLength = execIdGen.nextId(sendContext.execIdBytes, 0);
         char fixSide = side == com.llexsimulator.sbe.OrderSide.BUY ? '1' : '2';
 
-        sendExecutionReport(connection, executionReport, transactTimeEncoder,
-                clOrdId, orderIdBytes, execIdBytes, symbol, fixSide,
+        sendExecutionReport(connection, sendContext.executionReport, sendContext.transactTimeEncoder,
+                clOrdId, trimmedLength(clOrdId, 36),
+                sendContext.orderIdBytes, orderIdLength,
+                sendContext.execIdBytes, execIdLength,
+                symbol, fixSide,
                 orderQty, price, 0L, 0L, 0L, orderQty,
                 ExecType.REJECTED, OrdStatus.REJECTED,
                 mapRejectReason(reason));
@@ -209,12 +213,16 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
             return;
         }
 
-        orderIdGen.nextId(orderIdBytes, 0);
-        execIdGen.nextId(execIdBytes, 0);
+        SendContext sendContext = this.sendContext.get();
+        int orderIdLength = orderIdGen.nextId(sendContext.orderIdBytes, 0);
+        int execIdLength = execIdGen.nextId(sendContext.execIdBytes, 0);
         char fixSide = side == com.llexsimulator.sbe.OrderSide.BUY ? '1' : '2';
 
-        sendExecutionReport(connection, executionReport, transactTimeEncoder,
-                clOrdId, orderIdBytes, execIdBytes, symbol, fixSide,
+        sendExecutionReport(connection, sendContext.executionReport, sendContext.transactTimeEncoder,
+                clOrdId, trimmedLength(clOrdId, 36),
+                sendContext.orderIdBytes, orderIdLength,
+                sendContext.execIdBytes, execIdLength,
+                symbol, fixSide,
                 orderQty, price, 0L, 0L, cumQty, 0L,
                 ExecType.CANCELED, OrdStatus.CANCELED,
                 0);
@@ -225,22 +233,25 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
             FixConnection connection,
             ExecutionReportEncoder report,
             UtcTimestampEncoder timestampEncoder,
-            byte[] clOrdId, byte[] orderId, byte[] execId, byte[] symbol,
+            byte[] clOrdId, int clOrdIdLength,
+            byte[] orderId, int orderIdLength,
+            byte[] execId, int execIdLength,
+            byte[] symbol,
             char side, long orderQty, long price, long lastQty, long lastPx,
             long cumQty, long leavesQty,
             ExecType execType, OrdStatus ordStatus,
             int ordRejReason) {
 
         report.reset();
-        report.orderID(orderId, orderId.length)
-              .execID(execId, execId.length)
+        report.orderID(orderId, orderIdLength)
+              .execID(execId, execIdLength)
               .execType(mapExecType(execType))
               .ordStatus(mapOrdStatus(ordStatus))
               .side(side)
               .leavesQty(leavesQty, 4)
               .cumQty(cumQty, 4)
               .avgPx(cumQty > 0 ? lastPx : 0L, 8)
-              .clOrdID(clOrdId, clOrdId.length);
+              .clOrdID(clOrdId, clOrdIdLength);
         report.instrument().symbol(symbol, trimmedLength(symbol, 16));
         report.orderQtyData().orderQty(orderQty, 4);
 
@@ -259,23 +270,32 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
 
         int timestampLength = timestampEncoder.encode(System.currentTimeMillis());
         report.transactTime(timestampEncoder.buffer(), timestampLength);
-        if (connection.session() != null) {
-            connection.session().prepare(report.header());
-        }
 
-        long result = 0L;
-        for (int attempt = 0; attempt < 3; attempt++) {
-            result = connection.writer().send(report, connection.sequenceIndex());
-            if (!Pressure.isBackPressured(result) && result >= 0L) {
-                return;
+        synchronized (connection) {
+            int claimedMsgSeqNum = connection.claimNextOutboundMsgSeqNum();
+            if (connection.session() != null) {
+                connection.session().prepare(report.header());
             }
-            Thread.onSpinWait();
-        }
+            report.header().msgSeqNum(claimedMsgSeqNum);
 
-        if (Pressure.isBackPressured(result)) {
-            log.warn("Back pressured while sending ExecutionReport: session={} result={}", connection.sessionKey(), result);
-        } else {
-            log.warn("Failed to send ExecutionReport: session={} result={}", connection.sessionKey(), result);
+            long result = 0L;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                result = connection.writer().send(report, claimedMsgSeqNum);
+                if (!Pressure.isBackPressured(result) && result >= 0L) {
+                    return;
+                }
+                Thread.onSpinWait();
+            }
+
+            connection.rollbackOutboundMsgSeqNum(claimedMsgSeqNum);
+
+            if (Pressure.isBackPressured(result)) {
+                log.warn("Back pressured while sending ExecutionReport: session={} result={} msgSeqNum={}",
+                        connection.sessionKey(), result, claimedMsgSeqNum);
+            } else {
+                log.warn("Failed to send ExecutionReport: session={} result={} msgSeqNum={}",
+                        connection.sessionKey(), result, claimedMsgSeqNum);
+            }
         }
     }
 
@@ -324,5 +344,12 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
             end--;
         }
         return end;
+    }
+
+    private static final class SendContext {
+        private final byte[] orderIdBytes = new byte[36];
+        private final byte[] execIdBytes = new byte[36];
+        private final ExecutionReportEncoder executionReport = new ExecutionReportEncoder();
+        private final UtcTimestampEncoder transactTimeEncoder = new UtcTimestampEncoder();
     }
 }
