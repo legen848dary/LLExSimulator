@@ -30,6 +30,7 @@ FQDN=""
 CERTBOT_EMAIL=""
 APP_PORT="${APP_PORT:-8080}"
 CLOSE_DIRECT_WEB_PORT=false
+STATUS_ONLY=false
 DRY_RUN=false
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
@@ -64,12 +65,14 @@ ${BOLD}Optional options:${RESET}
   ${GREEN}--email <address>${RESET}         Email for Let's Encrypt expiry notices (recommended)
   ${GREEN}--app-port <port>${RESET}         Local app port on the droplet (default: ${APP_PORT})
   ${GREEN}--close-direct-web-port${RESET}   Remove the direct UFW allow rule for the app port after Nginx is enabled
+  ${GREEN}--status-only${RESET}             Read-only check: report backend/nginx/cert/UFW status without changing anything
   ${GREEN}--dry-run${RESET}                 Print the SSH command and remote script without executing them
   ${GREEN}help${RESET}                      Show this help
 
 ${BOLD}Examples:${RESET}
   ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --email ops@example.com
   ./scripts/${SCRIPT_NAME} your-droplet.example.net ~/.ssh/<your-private-key> ubuntu --fqdn sim.example.com --app-port 8080
+  ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --status-only
   ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --dry-run
 
 ${BOLD}Important:${RESET}
@@ -133,6 +136,10 @@ parse_args() {
                 ;;
             --close-direct-web-port)
                 CLOSE_DIRECT_WEB_PORT=true
+                shift
+                ;;
+            --status-only)
+                STATUS_ONLY=true
                 shift
                 ;;
             --dry-run)
@@ -270,11 +277,18 @@ FQDN='${FQDN}'
 APP_PORT='${APP_PORT}'
 CERTBOT_EMAIL='${CERTBOT_EMAIL}'
 CLOSE_DIRECT_WEB_PORT='${CLOSE_DIRECT_WEB_PORT}'
+STATUS_ONLY='${STATUS_ONLY}'
 NGINX_SITE_NAME='llexsimulator-${FQDN}'
 NGINX_SITE_PATH="/etc/nginx/sites-available/llexsimulator-${FQDN}"
 
 log() {
     printf '[remote] %s\n' "\$*"
+}
+
+log_status() {
+    local label="\$1"
+    local value="\$2"
+    printf '[remote] %-26s %s\n' "\${label}:" "\${value}"
 }
 
 if [[ ! -r /etc/os-release ]]; then
@@ -288,6 +302,94 @@ if [[ "\${ID:-}" != 'ubuntu' ]]; then
     exit 1
 fi
 
+if [[ "\${STATUS_ONLY}" == 'true' ]]; then
+    cert_exists='no'
+    if [[ -s "/etc/letsencrypt/live/\${FQDN}/fullchain.pem" && -s "/etc/letsencrypt/live/\${FQDN}/privkey.pem" ]]; then
+        cert_exists='yes'
+    fi
+
+    nginx_installed='no'
+    if command -v nginx >/dev/null 2>&1; then
+        nginx_installed='yes'
+    fi
+
+    nginx_active='no'
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        nginx_active='yes'
+    fi
+
+    nginx_config_ok='no'
+    if command -v nginx >/dev/null 2>&1 && nginx -t >/tmp/llex-nginx-status.out 2>&1; then
+        nginx_config_ok='yes'
+    fi
+
+    backend_health='unreachable'
+    if curl -fsS "http://127.0.0.1:\${APP_PORT}/api/health" >/tmp/llex-backend-health.json 2>/dev/null; then
+        backend_health='healthy'
+    fi
+
+    site_file='missing'
+    [[ -f "\${NGINX_SITE_PATH}" ]] && site_file='present'
+
+    site_enabled='missing'
+    if [[ -L "/etc/nginx/sites-enabled/\${NGINX_SITE_NAME}" ]]; then
+        site_enabled='enabled'
+    fi
+
+    ufw_enabled='unknown'
+    if command -v ufw >/dev/null 2>&1; then
+        if ufw status | grep -q '^Status: active'; then
+            ufw_enabled='active'
+        else
+            ufw_enabled='inactive'
+        fi
+    fi
+
+    allow_80='unknown'
+    allow_443='unknown'
+    if command -v ufw >/dev/null 2>&1; then
+        ufw_status="\$(ufw status 2>/dev/null || true)"
+        if printf '%s\n' "\${ufw_status}" | grep -Eq '(^|[[:space:]])80(/tcp)?[[:space:]].*ALLOW|Nginx Full[[:space:]].*ALLOW'; then
+            allow_80='yes'
+        else
+            allow_80='no'
+        fi
+        if printf '%s\n' "\${ufw_status}" | grep -Eq '(^|[[:space:]])443(/tcp)?[[:space:]].*ALLOW|Nginx Full[[:space:]].*ALLOW'; then
+            allow_443='yes'
+        else
+            allow_443='no'
+        fi
+    fi
+
+    log 'HTTPS status check'
+    log_status 'FQDN' "\${FQDN}"
+    log_status 'Backend on localhost' "\${backend_health}"
+    log_status 'Nginx installed' "\${nginx_installed}"
+    log_status 'Nginx active' "\${nginx_active}"
+    log_status 'Nginx config test' "\${nginx_config_ok}"
+    log_status 'Managed site file' "\${site_file} (\${NGINX_SITE_PATH})"
+    log_status 'Managed site enabled' "\${site_enabled} (/etc/nginx/sites-enabled/\${NGINX_SITE_NAME})"
+    log_status 'Certificate present' "\${cert_exists} (/etc/letsencrypt/live/\${FQDN}/)"
+    log_status 'UFW status' "\${ufw_enabled}"
+    log_status 'Port 80 allowed' "\${allow_80}"
+    log_status 'Port 443 allowed' "\${allow_443}"
+
+    if [[ -f /tmp/llex-backend-health.json ]]; then
+        log 'Backend health payload:'
+        cat /tmp/llex-backend-health.json
+        printf '\n'
+        rm -f /tmp/llex-backend-health.json
+    fi
+
+    if [[ -f /tmp/llex-nginx-status.out ]]; then
+        log 'nginx -t output:'
+        cat /tmp/llex-nginx-status.out
+        rm -f /tmp/llex-nginx-status.out
+    fi
+
+    exit 0
+fi
+
 apt-get update
 apt-get install -y nginx certbot python3-certbot-nginx curl ufw
 systemctl enable --now nginx
@@ -298,16 +400,17 @@ else
     log "Warning: backend did not answer on 127.0.0.1:\${APP_PORT}. Nginx/Certbot setup will continue."
 fi
 
-cat > "\${NGINX_SITE_PATH}" <<EOF_NGINX
+render_http_config() {
+    cat <<'EOF_HTTP'
 server {
     listen 80;
     listen [::]:80;
-    server_name ${FQDN};
+    server_name __FQDN__;
 
     client_max_body_size 16m;
 
     location / {
-        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_pass http://127.0.0.1:__APP_PORT__;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -319,12 +422,89 @@ server {
         proxy_send_timeout 300s;
     }
 }
-EOF_NGINX
+EOF_HTTP
+}
 
-ln -sfn "\${NGINX_SITE_PATH}" "/etc/nginx/sites-enabled/\${NGINX_SITE_NAME}"
-rm -f /etc/nginx/sites-enabled/default
-nginx -t
-systemctl reload nginx
+render_https_config() {
+    cat <<'EOF_HTTPS'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __FQDN__;
+
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name __FQDN__;
+
+    ssl_certificate /etc/letsencrypt/live/__FQDN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__FQDN__/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    client_max_body_size 16m;
+
+    location / {
+        proxy_pass http://127.0.0.1:__APP_PORT__;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+EOF_HTTPS
+}
+
+render_config_to_file() {
+    local mode="\$1"
+    local target_file="\$2"
+
+    if [[ "\${mode}" == 'http' ]]; then
+        render_http_config
+    else
+        render_https_config
+    fi | sed \
+        -e "s|__FQDN__|\${FQDN}|g" \
+        -e "s|__APP_PORT__|\${APP_PORT}|g" \
+        > "\${target_file}"
+}
+
+install_managed_config() {
+    local rendered_file="\$1"
+
+    if [[ -f "\${NGINX_SITE_PATH}" ]] && cmp -s "\${rendered_file}" "\${NGINX_SITE_PATH}"; then
+        log "Nginx site config already up to date: \${NGINX_SITE_PATH}"
+        rm -f "\${rendered_file}"
+        return 0
+    fi
+
+    install -m 0644 "\${rendered_file}" "\${NGINX_SITE_PATH}"
+    rm -f "\${rendered_file}"
+    log "Updated Nginx site config: \${NGINX_SITE_PATH}"
+}
+
+ensure_nginx_site_enabled() {
+    ln -sfn "\${NGINX_SITE_PATH}" "/etc/nginx/sites-enabled/\${NGINX_SITE_NAME}"
+    rm -f /etc/nginx/sites-enabled/default
+}
+
+cert_exists=false
+if [[ -s "/etc/letsencrypt/live/\${FQDN}/fullchain.pem" && -s "/etc/letsencrypt/live/\${FQDN}/privkey.pem" ]]; then
+    cert_exists=true
+fi
+
+ssl_support_files_present=false
+if [[ -s /etc/letsencrypt/options-ssl-nginx.conf && -s /etc/letsencrypt/ssl-dhparams.pem ]]; then
+    ssl_support_files_present=true
+fi
 
 ufw allow 'Nginx Full'
 
@@ -332,11 +512,37 @@ if [[ "\${CLOSE_DIRECT_WEB_PORT}" == 'true' ]]; then
     ufw delete allow "\${APP_PORT}/tcp" >/dev/null 2>&1 || true
 fi
 
-if [[ -n "\${CERTBOT_EMAIL}" ]]; then
-    certbot --nginx -d "\${FQDN}" --non-interactive --agree-tos --redirect --email "\${CERTBOT_EMAIL}"
+if [[ "\${cert_exists}" != 'true' || "\${ssl_support_files_present}" != 'true' ]]; then
+    log "No reusable TLS certificate/config found for \${FQDN}; preparing HTTP-only site for certificate issuance."
+
+    http_config_tmp="\$(mktemp)"
+    render_config_to_file http "\${http_config_tmp}"
+    install_managed_config "\${http_config_tmp}"
+    ensure_nginx_site_enabled
+    nginx -t
+    systemctl reload nginx
+
+    if [[ -n "\${CERTBOT_EMAIL}" ]]; then
+        certbot certonly --nginx -d "\${FQDN}" --non-interactive --agree-tos --email "\${CERTBOT_EMAIL}"
+    else
+        certbot certonly --nginx -d "\${FQDN}" --non-interactive --agree-tos --register-unsafely-without-email
+    fi
+
+    cert_exists=true
+    ssl_support_files_present=true
 else
-    certbot --nginx -d "\${FQDN}" --non-interactive --agree-tos --redirect --register-unsafely-without-email
+    log "Existing TLS certificate found for \${FQDN}; reusing it."
 fi
+
+if [[ "\${cert_exists}" != 'true' ]]; then
+    echo "Certificate issuance did not succeed for \${FQDN}." >&2
+    exit 1
+fi
+
+https_config_tmp="\$(mktemp)"
+render_config_to_file https "\${https_config_tmp}"
+install_managed_config "\${https_config_tmp}"
+ensure_nginx_site_enabled
 
 nginx -t
 systemctl reload nginx
@@ -363,7 +569,11 @@ run_remote_setup() {
 
     if [[ "${DRY_RUN}" == true ]]; then
         banner "Dry Run"
-        info "Would configure Nginx + Certbot on $(ssh_target) for ${FQDN} using key ${SSH_KEY_PATH}"
+        if [[ "${STATUS_ONLY}" == true ]]; then
+            info "Would check HTTPS/Nginx status on $(ssh_target) for ${FQDN} using key ${SSH_KEY_PATH}"
+        else
+            info "Would configure Nginx + Certbot on $(ssh_target) for ${FQDN} using key ${SSH_KEY_PATH}"
+        fi
         echo ""
         echo "SSH command:"
         printf '  %q' "${ssh_cmd[@]}"
@@ -376,8 +586,13 @@ run_remote_setup() {
         return 0
     fi
 
-    banner "Configuring HTTPS on $(ssh_target)"
-    info "Installing Nginx/Certbot and configuring ${FQDN} -> http://127.0.0.1:${APP_PORT}"
+    if [[ "${STATUS_ONLY}" == true ]]; then
+        banner "Checking HTTPS status on $(ssh_target)"
+        info "Inspecting backend, Nginx, certificate, and firewall state for ${FQDN}"
+    else
+        banner "Configuring HTTPS on $(ssh_target)"
+        info "Installing Nginx/Certbot and configuring ${FQDN} -> http://127.0.0.1:${APP_PORT}"
+    fi
     build_remote_script | "${ssh_cmd[@]}"
 }
 
@@ -395,7 +610,9 @@ main() {
     else
         warn "No Certbot email provided; the script will register unsafely without email."
     fi
-    if [[ "${CLOSE_DIRECT_WEB_PORT}" == true ]]; then
+    if [[ "${STATUS_ONLY}" == true ]]; then
+        info "Mode: status only (no remote changes will be made)"
+    elif [[ "${CLOSE_DIRECT_WEB_PORT}" == true ]]; then
         info "Will remove any old direct UFW allow rule for ${APP_PORT}/tcp after enabling Nginx."
     else
         info "This script leaves any existing ${APP_PORT}/tcp UFW rule unchanged; with the current release script the web port is localhost-only anyway."

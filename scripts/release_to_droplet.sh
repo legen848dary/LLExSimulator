@@ -6,7 +6,7 @@
 #   ./scripts/release_to_droplet.sh <host-or-ip> <ssh-key-path> <ssh-user> [options]
 #
 # What it does:
-#   1. Rebuilds the local Docker image via ./scripts/llexsim.sh build
+#   1. Compiles the fat JAR locally and builds a droplet-targeted Docker image
 #   2. Syncs runtime config to the remote droplet
 #   3. Streams the Docker image to the droplet over SSH via docker save/load
 #   4. Writes a deployment-specific docker-compose.yml on the droplet
@@ -24,7 +24,9 @@ SCRIPT_NAME="$(basename "$0")"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="${PROJECT_ROOT}/scripts"
 BUILD_SCRIPT="${SCRIPTS_DIR}/llexsim.sh"
+REMOTE_SCRIPT_RENDERER="${SCRIPTS_DIR}/render_release_remote_script.py"
 LOCAL_CONFIG_DIR="${PROJECT_ROOT}/config"
+GRADLEW_BIN="${PROJECT_ROOT}/gradlew"
 
 DROPLET_HOST=""
 DROPLET_USER=""
@@ -36,6 +38,7 @@ WEB_PORT="${WEB_PORT:-8080}"
 FIX_PORT="${FIX_PORT:-9880}"
 PUBLIC_WEB_PORT=false
 PUBLIC_FIX_PORT=false
+TARGET_PLATFORM="${TARGET_PLATFORM:-linux/amd64}"
 WAIT_SECONDS="${WAIT_SECONDS:-120}"
 CPUSET_MODE="${CPUSET_MODE:-auto}"
 SYNC_CONFIG=true
@@ -81,6 +84,7 @@ ${BOLD}Options:${RESET}
   ${GREEN}--fix-port <port>${RESET}         Host FIX port on the droplet (default: ${FIX_PORT})
   ${GREEN}--public-web-port${RESET}         Bind the web/API port publicly instead of localhost-only
   ${GREEN}--public-fix-port${RESET}         Bind the FIX port publicly instead of localhost-only
+  ${GREEN}--platform <os/arch>${RESET}      Target image platform for the droplet (default: ${TARGET_PLATFORM})
   ${GREEN}--wait-seconds <n>${RESET}        Health-check wait timeout (default: ${WAIT_SECONDS})
   ${GREEN}--cpuset <auto|none|range>${RESET} CPU pinning for remote compose (default: ${CPUSET_MODE})
   ${GREEN}--release-id <id>${RESET}         Override the generated release identifier
@@ -94,20 +98,23 @@ ${BOLD}Examples:${RESET}
       ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root
       ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> deploy --no-cache
       ./scripts/${SCRIPT_NAME} your-droplet.example.com ~/.ssh/<your-private-key> ubuntu --no-build --skip-config-sync
+      ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --platform linux/amd64
       ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --cpuset none --wait-seconds 180
       ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --public-fix-port
       ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
 
 ${BOLD}Deployment flow:${RESET}
-  1. Local build using ./scripts/llexsim.sh build
-  2. Optional config sync to ${APP_DIR}/config/
-  3. docker save ${IMAGE_NAME} | ssh ${DROPLET_USER}@<host-or-ip> docker load
-  4. Remote compose up using ${APP_DIR}/docker-compose.yml
-  5. Wait for http://localhost:${WEB_PORT}/api/health on the droplet
+  1. Local fat-JAR build using ./gradlew shadowJar
+  2. Local Docker image build using docker buildx for ${TARGET_PLATFORM}
+  3. Optional config sync to ${APP_DIR}/config/
+  4. docker save ${IMAGE_NAME} | ssh ${DROPLET_USER}@<host-or-ip> docker load
+  5. Remote compose up using ${APP_DIR}/docker-compose.yml
+  6. Wait for http://localhost:${WEB_PORT}/api/health on the droplet
 
 ${BOLD}Security defaults:${RESET}
   - Web/API binds to 127.0.0.1:${WEB_PORT} by default for Nginx/HTTPS fronting.
   - FIX binds to 127.0.0.1:${FIX_PORT} by default and is not internet-facing.
+  - Droplet releases build a ${TARGET_PLATFORM} image by default so an Apple Silicon laptop can deploy safely to an amd64 Ubuntu host.
   - Use ${GREEN}--public-web-port${RESET} and/or ${GREEN}--public-fix-port${RESET} only if you explicitly want public exposure.
 EOF
 }
@@ -130,10 +137,9 @@ parse_args() {
     case "${1:-}" in
         help|--help|-h)
             usage
+            exit 0
+            ;;
     esac
-                printf '      - "%s"\n' "\${web_port_binding}"
-                printf '      - "%s"\n' "\${fix_port_binding}"
-                cat <<'EOF_COMPOSE_BODY'
 
     if [[ $# -lt 3 ]]; then
         error "Missing required arguments: <host-or-ip> <ssh-key-path> <ssh-user>"
@@ -181,6 +187,11 @@ parse_args() {
             --public-fix-port)
                 PUBLIC_FIX_PORT=true
                 shift
+                ;;
+            --platform)
+                require_option_value "$1" "$#"
+                TARGET_PLATFORM="$2"
+                shift 2
                 ;;
             --wait-seconds)
                 require_option_value "$1" "$#"
@@ -256,6 +267,7 @@ validate_inputs() {
     [[ "${FIX_PORT}" =~ ^[0-9]+$ ]] || { error "--fix-port must be numeric."; exit 1; }
     [[ "${WAIT_SECONDS}" =~ ^[0-9]+$ ]] || { error "--wait-seconds must be numeric."; exit 1; }
     [[ -n "${RELEASE_ID}" ]] || { error "Release ID cannot be empty."; exit 1; }
+    [[ "${TARGET_PLATFORM}" =~ ^[a-z0-9._-]+/[a-z0-9._-]+$ ]] || { error "--platform must look like os/arch (example: linux/amd64)."; exit 1; }
 
     case "${CPUSET_MODE}" in
         auto|none)
@@ -281,12 +293,21 @@ validate_inputs() {
     require_local_binary "${SSH_BIN}"
     require_local_binary "${RSYNC_BIN}"
     require_local_binary "${DOCKER_BIN}"
+    require_local_binary python3
+    require_local_binary java
+
+    if ! "${DOCKER_BIN}" buildx version >/dev/null 2>&1; then
+        error "Docker Buildx is required for droplet releases. Install/enable the Docker buildx plugin first."
+        exit 1
+    fi
 
     [[ -f "${SSH_KEY_PATH}" ]] || { error "SSH key not found: ${SSH_KEY_PATH}"; exit 1; }
 
     if [[ "${SKIP_BUILD}" == false ]]; then
-        [[ -x "${BUILD_SCRIPT}" ]] || { error "Build script is missing or not executable: ${BUILD_SCRIPT}"; exit 1; }
+        [[ -x "${GRADLEW_BIN}" ]] || { error "Gradle wrapper is missing or not executable: ${GRADLEW_BIN}"; exit 1; }
     fi
+
+    [[ -f "${REMOTE_SCRIPT_RENDERER}" ]] || { error "Remote script renderer is missing: ${REMOTE_SCRIPT_RENDERER}"; exit 1; }
 
     if [[ "${SYNC_CONFIG}" == true && ! -d "${LOCAL_CONFIG_DIR}" ]]; then
         error "Local config directory not found: ${LOCAL_CONFIG_DIR}"
@@ -383,21 +404,28 @@ build_local_image() {
     fi
 
     banner "Building local image"
-    info "Running ${BUILD_SCRIPT} build before deployment..."
+    info "Compiling fat JAR for release (./gradlew shadowJar -x test)..."
 
     if [[ "${DRY_RUN}" == true ]]; then
+        print_command "${PROJECT_ROOT}/gradlew" --no-daemon shadowJar -x test
         if [[ "${BUILD_NO_CACHE}" == true ]]; then
-            print_command "${BUILD_SCRIPT}" build --no-cache
+            print_command "${DOCKER_BIN}" buildx build --platform "${TARGET_PLATFORM}" --load --no-cache -t "${IMAGE_NAME}" -f "${PROJECT_ROOT}/Dockerfile" "${PROJECT_ROOT}"
         else
-            print_command "${BUILD_SCRIPT}" build
+            print_command "${DOCKER_BIN}" buildx build --platform "${TARGET_PLATFORM}" --load -t "${IMAGE_NAME}" -f "${PROJECT_ROOT}/Dockerfile" "${PROJECT_ROOT}"
         fi
         return 0
     fi
 
+    (
+        cd "${PROJECT_ROOT}"
+        ./gradlew --no-daemon shadowJar -x test
+    )
+
+    info "Building droplet image for ${TARGET_PLATFORM} via docker buildx..."
     if [[ "${BUILD_NO_CACHE}" == true ]]; then
-        "${BUILD_SCRIPT}" build --no-cache
+        "${DOCKER_BIN}" buildx build --platform "${TARGET_PLATFORM}" --load --no-cache -t "${IMAGE_NAME}" -f "${PROJECT_ROOT}/Dockerfile" "${PROJECT_ROOT}"
     else
-        "${BUILD_SCRIPT}" build
+        "${DOCKER_BIN}" buildx build --platform "${TARGET_PLATFORM}" --load -t "${IMAGE_NAME}" -f "${PROJECT_ROOT}/Dockerfile" "${PROJECT_ROOT}"
     fi
 }
 
@@ -415,6 +443,28 @@ ensure_local_image_present() {
     fi
 }
 
+verify_local_image_platform() {
+    if [[ "${DRY_RUN}" == true ]]; then
+        return 0
+    fi
+
+    local actual_platform
+    actual_platform="$("${DOCKER_BIN}" image inspect "${IMAGE_NAME}" --format '{{.Os}}/{{.Architecture}}' 2>/dev/null | head -n 1)"
+
+    if [[ -z "${actual_platform}" ]]; then
+        error "Could not determine local image platform for ${IMAGE_NAME}"
+        exit 1
+    fi
+
+    if [[ "${actual_platform}" != "${TARGET_PLATFORM}" ]]; then
+        error "Local image platform mismatch: expected ${TARGET_PLATFORM}, got ${actual_platform}"
+        error "This usually means the image was built for the wrong CPU architecture for the droplet."
+        exit 1
+    fi
+
+    success "Local image platform verified: ${actual_platform}"
+}
+
 prepare_remote_directories() {
     banner "Preparing remote directories"
     local remote_command
@@ -428,6 +478,7 @@ EOF
 stream_image_to_remote() {
     banner "Transferring Docker image"
     info "Streaming ${IMAGE_NAME} to $(ssh_target) via docker save/load..."
+    info "Expected image platform: ${TARGET_PLATFORM}"
 
     local -a ssh_cmd=("${SSH_BIN}")
     local opt
@@ -448,172 +499,18 @@ stream_image_to_remote() {
 }
 
 build_remote_deploy_script() {
-    cat <<EOF
-set -euo pipefail
-
-APP_DIR='${APP_DIR}'
-IMAGE_NAME='${IMAGE_NAME}'
-CONTAINER_NAME='${CONTAINER_NAME}'
-WEB_PORT='${WEB_PORT}'
-FIX_PORT='${FIX_PORT}'
-WAIT_SECONDS='${WAIT_SECONDS}'
-RELEASE_ID='${RELEASE_ID}'
-CPUSET_MODE='${CPUSET_MODE}'
-SOURCE_GIT_COMMIT='${GIT_COMMIT}'
-PUBLIC_WEB_PORT='${PUBLIC_WEB_PORT}'
-PUBLIC_FIX_PORT='${PUBLIC_FIX_PORT}'
-
-log() {
-    printf '[remote] %s\n' "\$*"
-}
-
-wait_healthy() {
-    local max_wait="\${WAIT_SECONDS}"
-    local waited=0
-
-    while [[ "\${waited}" -lt "\${max_wait}" ]]; do
-        local status
-        status="\$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "\${CONTAINER_NAME}" 2>/dev/null || echo missing)"
-        case "\${status}" in
-            healthy)
-                return 0
-                ;;
-            unhealthy|exited|dead)
-                log "Container entered bad state: \${status}"
-                docker logs --tail 200 "\${CONTAINER_NAME}" || true
-                return 1
-                ;;
-            *)
-                sleep 3
-                waited=\$((waited + 3))
-                ;;
-        esac
-    done
-
-    log "Timed out waiting for container health after \${WAIT_SECONDS}s"
-    docker ps -a --filter "name=^/\${CONTAINER_NAME}\$" || true
-    docker logs --tail 200 "\${CONTAINER_NAME}" || true
-    return 1
-}
-
-mkdir -p "\${APP_DIR}" "\${APP_DIR}/config" "\${APP_DIR}/logs" "\${APP_DIR}/releases"
-release_dir="\${APP_DIR}/releases/\${RELEASE_ID}"
-mkdir -p "\${release_dir}"
-
-cpuset_line=''
-case "\${CPUSET_MODE}" in
-    auto)
-        cpu_count="\$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 1)"
-        if [[ "\${cpu_count}" =~ ^[0-9]+$ ]]; then
-            if [[ "\${cpu_count}" -ge 4 ]]; then
-                cpuset_line='    cpuset: "0-3"'
-            elif [[ "\${cpu_count}" -ge 2 ]]; then
-                cpuset_line="    cpuset: \"0-\$((cpu_count - 1))\""
-            fi
-        fi
-        ;;
-    none|'')
-        cpuset_line=''
-        ;;
-    *)
-        cpuset_line="    cpuset: \"\${CPUSET_MODE}\""
-        ;;
-esac
-
-compose_file="\${APP_DIR}/docker-compose.yml"
-web_port_binding="127.0.0.1:\${WEB_PORT}:8080"
-fix_port_binding="127.0.0.1:\${FIX_PORT}:9880"
-if [[ "\${PUBLIC_WEB_PORT}" == 'true' ]]; then
-    web_port_binding="\${WEB_PORT}:8080"
-fi
-if [[ "\${PUBLIC_FIX_PORT}" == 'true' ]]; then
-    fix_port_binding="\${FIX_PORT}:9880"
-fi
-{
-cat <<'EOF_COMPOSE_HEAD'
-services:
-  llexsimulator:
-    image: ${IMAGE_NAME}
-    container_name: ${CONTAINER_NAME}
-    ports:
-      - "${web_port_binding}"
-      - "${fix_port_binding}"
-    volumes:
-      - ${APP_DIR}/config:/app/config:ro
-      - ${APP_DIR}/logs:/app/logs
-    tmpfs:
-      - /tmp/artio-state:size=64m,mode=1777
-    environment:
-      JAVA_OPTS: >-
-        -XX:+UseZGC
-        -XX:+ZGenerational
-        -Xms1g -Xmx1g
-        -XX:+AlwaysPreTouch
-        -XX:+DisableExplicitGC
-        -XX:+PerfDisableSharedMem
-        -Daeron.dir=/dev/shm/aeron-llexsim
-        -Daeron.ipc.term.buffer.length=8388608
-        -Daeron.threading.mode=SHARED
-        -Daeron.shared.idle.strategy=backoff
-        -Dagrona.disable.bounds.checks=true
-        --add-exports java.base/jdk.internal.misc=ALL-UNNAMED
-        --add-opens java.base/sun.nio.ch=ALL-UNNAMED
-        --add-opens java.base/java.nio=ALL-UNNAMED
-        --add-opens java.base/java.lang=ALL-UNNAMED
-    shm_size: "512mb"
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      nofile:
-        soft: 65536
-        hard: 65536
-EOF_COMPOSE_BODY
-printf '%s\n' "\${cpuset_line}"
-cat <<'EOF_COMPOSE_TAIL'
-    mem_limit: 2g
-    mem_reservation: 1g
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-EOF_COMPOSE_TAIL
-} > "\${compose_file}"
-
-cp "\${compose_file}" "\${release_dir}/docker-compose.yml"
-
-image_id="\$(docker image inspect --format '{{.Id}}' "\${IMAGE_NAME}" 2>/dev/null || echo unknown)"
-cat > "\${release_dir}/release-manifest.txt" <<EOF_MANIFEST
-release_id=\${RELEASE_ID}
-created_at_utc=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
-source_git_commit=\${SOURCE_GIT_COMMIT}
-image_name=\${IMAGE_NAME}
-image_id=\${image_id}
-container_name=\${CONTAINER_NAME}
-web_port=\${WEB_PORT}
-fix_port=\${FIX_PORT}
-public_web_port=\${PUBLIC_WEB_PORT}
-public_fix_port=\${PUBLIC_FIX_PORT}
-app_dir=\${APP_DIR}
-cpuset=\${CPUSET_MODE}
-EOF_MANIFEST
-
-log 'Starting/recreating remote service with docker compose...'
-docker compose -f "\${compose_file}" up -d --force-recreate --remove-orphans
-
-log 'Waiting for remote container health...'
-wait_healthy
-
-log 'Health endpoint response:'
-curl -fsS "http://localhost:${WEB_PORT}/api/health"
-printf '\n'
-
-log 'Deployed release metadata:'
-printf '  - %s\n' "\${release_dir}/release-manifest.txt" "\${release_dir}/docker-compose.yml"
-EOF
+    APP_DIR="${APP_DIR}" \
+    IMAGE_NAME="${IMAGE_NAME}" \
+    CONTAINER_NAME="${CONTAINER_NAME}" \
+    WEB_PORT="${WEB_PORT}" \
+    FIX_PORT="${FIX_PORT}" \
+    WAIT_SECONDS="${WAIT_SECONDS}" \
+    RELEASE_ID="${RELEASE_ID}" \
+    CPUSET_MODE="${CPUSET_MODE}" \
+    SOURCE_GIT_COMMIT="${GIT_COMMIT}" \
+    PUBLIC_WEB_PORT="${PUBLIC_WEB_PORT}" \
+    PUBLIC_FIX_PORT="${PUBLIC_FIX_PORT}" \
+    python3 "${REMOTE_SCRIPT_RENDERER}"
 }
 
 deploy_remote_release() {
@@ -633,6 +530,7 @@ main() {
     info "Release ID: ${RELEASE_ID}"
     info "Target: $(ssh_target)"
     info "Image: ${IMAGE_NAME}"
+    info "Target image platform: ${TARGET_PLATFORM}"
     info "Remote app dir: ${APP_DIR}"
     info "Remote ports: web=${WEB_PORT}, fix=${FIX_PORT}"
     if [[ "${PUBLIC_WEB_PORT}" == true ]]; then
@@ -651,6 +549,7 @@ main() {
 
     build_local_image
     ensure_local_image_present
+    verify_local_image_platform
     prepare_remote_directories
     sync_remote_config
     stream_image_to_remote
