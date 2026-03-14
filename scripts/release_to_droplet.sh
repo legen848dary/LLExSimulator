@@ -114,6 +114,8 @@ ${BOLD}Deployment flow:${RESET}
 ${BOLD}Security defaults:${RESET}
   - Web/API binds to 127.0.0.1:${WEB_PORT} by default for Nginx/HTTPS fronting.
   - FIX binds to 127.0.0.1:${FIX_PORT} by default and is not internet-facing.
+  - Demo FIX client is available as an on-demand Docker Compose service (`fix-demo-client`) and is not started by default.
+  - CPU auto-pinning leaves one vCPU free for the host on multi-core droplets (for example, a 2 vCPU droplet pins the simulator to one core).
   - Droplet releases build a ${TARGET_PLATFORM} image by default so an Apple Silicon laptop can deploy safely to an amd64 Ubuntu host.
   - Use ${GREEN}--public-web-port${RESET} and/or ${GREEN}--public-fix-port${RESET} only if you explicitly want public exposure.
 EOF
@@ -510,6 +512,7 @@ build_remote_deploy_script() {
     SOURCE_GIT_COMMIT="${GIT_COMMIT}" \
     PUBLIC_WEB_PORT="${PUBLIC_WEB_PORT}" \
     PUBLIC_FIX_PORT="${PUBLIC_FIX_PORT}" \
+    TARGET_PLATFORM="${TARGET_PLATFORM}" \
     python3 "${REMOTE_SCRIPT_RENDERER}"
 }
 
@@ -572,6 +575,11 @@ main() {
         echo "  FIX:          local-only on droplet -> tcp://127.0.0.1:${FIX_PORT}"
         echo "  SSH tunnel:   ssh -N -L ${FIX_PORT}:127.0.0.1:${FIX_PORT} ${DROPLET_USER}@${DROPLET_HOST}"
     fi
+    echo ""
+    echo "Droplet demo client (on-demand Docker Compose service):"
+    echo "  Start:        ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && FIX_DEMO_RATE=100 docker compose --profile demo-client up -d fix-demo-client'"
+    echo "  Logs:         ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && docker compose logs -f fix-demo-client'"
+    echo "  Stop:         ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && docker compose stop fix-demo-client && docker compose rm -f fix-demo-client'"
 }
 
 main "$@"

@@ -352,19 +352,29 @@ From your local machine, rebuild and deploy to the droplet:
 
 What this script does:
 
-1. runs `./scripts/llexsim.sh build` locally
-2. syncs `config/` to `/opt/llexsimulator/config/` on the droplet
-3. streams the Docker image to the droplet using `docker save | ssh ... docker load`
-4. writes `/opt/llexsimulator/docker-compose.yml`
-5. starts or recreates the container remotely and waits for health
+1. builds the fat JAR locally with `./gradlew shadowJar`
+2. builds a droplet-targeted Docker image locally with `docker buildx --platform linux/amd64`
+3. syncs `config/` to `/opt/llexsimulator/config/` on the droplet
+4. streams the Docker image to the droplet using `docker save | ssh ... docker load`
+5. writes `/opt/llexsimulator/docker-compose.yml`
+6. starts or recreates the container remotely and waits for health
 
 Secure deployment defaults:
 
 - the web/API port binds to `127.0.0.1:8080` on the droplet
 - the FIX port binds to `127.0.0.1:9880` on the droplet
+- the simulator auto-pins to one fewer vCPU than the host has, leaving headroom for SSH, Nginx, Docker, and the optional demo client
 - neither service is internet-facing by default
 
 That means the intended public web entrypoint is an HTTPS reverse proxy such as Nginx, and the intended FIX access path is either local-on-droplet use or SSH tunneling from your workstation.
+
+On a `2 vCPU / 2 GB` droplet, the default `CPUSET_MODE=auto` now pins the simulator to a single core instead of both cores.
+If you need to override that explicitly, use for example:
+
+```bash
+./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --cpuset 0
+./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --cpuset none
+```
 
 If you explicitly want public Docker port publishing later, the release script supports opt-in flags:
 
@@ -442,7 +452,65 @@ Then, in another terminal, run the demo client against your local forwarded port
 FIX_CLIENT_HOST=localhost FIX_CLIENT_PORT=9880 ./scripts/fix-demo-client.sh run 100
 ```
 
-#### Step 6 — Useful dry runs
+#### Step 6 — Run the demo FIX client on the droplet only when needed
+
+The droplet deployment now includes an on-demand Docker Compose service named `fix-demo-client`.
+It is not started by default.
+
+SSH into the droplet:
+
+```bash
+ssh -i ~/.ssh/<your-private-key> root@203.0.113.10
+cd /opt/llexsimulator
+```
+
+Start the demo client in the background at `100 msg/s`:
+
+```bash
+FIX_DEMO_RATE=100 docker compose --profile demo-client up -d fix-demo-client
+```
+
+Start it at a higher rate:
+
+```bash
+FIX_DEMO_RATE=500 docker compose --profile demo-client up -d fix-demo-client
+```
+
+View logs:
+
+```bash
+docker compose logs -f fix-demo-client
+```
+
+Check status:
+
+```bash
+docker compose ps fix-demo-client
+```
+
+Stop and remove it cleanly:
+
+```bash
+docker compose stop fix-demo-client
+docker compose rm -f fix-demo-client
+```
+
+Useful environment overrides for the droplet demo client:
+
+```bash
+FIX_DEMO_RATE=250 \
+FIX_CLIENT_BEGIN_STRING=FIX.4.4 \
+FIX_CLIENT_SENDER_COMP_ID=CLIENT1 \
+FIX_CLIENT_TARGET_COMP_ID=LLEXSIM \
+FIX_CLIENT_SYMBOL=MSFT \
+FIX_CLIENT_ORDER_QTY=250 \
+FIX_CLIENT_PRICE=412.15 \
+docker compose --profile demo-client up -d fix-demo-client
+```
+
+Because the demo client runs in the same Compose network as the simulator, it connects to the simulator privately inside Docker and does not require the FIX port to be publicly exposed.
+
+#### Step 7 — Useful dry runs
 
 All droplet scripts support a dry-run mode so you can inspect the remote commands before executing them:
 

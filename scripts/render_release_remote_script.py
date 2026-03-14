@@ -19,6 +19,7 @@ replacements = {
     "__SOURCE_GIT_COMMIT__": shell_single_quote(os.environ["SOURCE_GIT_COMMIT"]),
     "__PUBLIC_WEB_PORT__": shell_single_quote(os.environ["PUBLIC_WEB_PORT"]),
     "__PUBLIC_FIX_PORT__": shell_single_quote(os.environ["PUBLIC_FIX_PORT"]),
+    "__TARGET_PLATFORM__": shell_single_quote(os.environ.get("TARGET_PLATFORM", "unknown")),
 }
 
 template = dedent(r'''
@@ -35,6 +36,7 @@ CPUSET_MODE='__CPUSET_MODE__'
 SOURCE_GIT_COMMIT='__SOURCE_GIT_COMMIT__'
 PUBLIC_WEB_PORT='__PUBLIC_WEB_PORT__'
 PUBLIC_FIX_PORT='__PUBLIC_FIX_PORT__'
+TARGET_PLATFORM='__TARGET_PLATFORM__'
 
 log() {
     printf '[remote] %s\n' "$*"
@@ -78,10 +80,14 @@ case "${CPUSET_MODE}" in
     auto)
         cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 1)"
         if [[ "${cpu_count}" =~ ^[0-9]+$ ]]; then
-            if [[ "${cpu_count}" -ge 4 ]]; then
-                cpuset_line='    cpuset: "0-3"'
-            elif [[ "${cpu_count}" -ge 2 ]]; then
-                cpuset_line="    cpuset: \"0-$((cpu_count - 1))\""
+            if [[ "${cpu_count}" -ge 2 ]]; then
+                reserved_cores=$((cpu_count - 1))
+                if [[ "${reserved_cores}" -gt 4 ]]; then
+                    reserved_cores=4
+                fi
+                cpuset_line="    cpuset: \"0-$((reserved_cores - 1))\""
+            else
+                cpuset_line='    cpuset: "0"'
             fi
         fi
         ;;
@@ -158,6 +164,39 @@ cat <<EOF_COMPOSE_TAIL
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  fix-demo-client:
+    image: ${IMAGE_NAME}
+    container_name: llexsimulator-fix-demo-client
+    profiles: ["demo-client"]
+    depends_on:
+      llexsimulator:
+        condition: service_healthy
+    entrypoint: ["sh", "-lc"]
+    command: >-
+      exec java ${FIX_DEMO_JAVA_OPTS:--Xms128m -Xmx256m}
+      -Dlog4j2.contextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector
+      -Dlog4j2.asyncLoggerRingBufferSize=262144
+      -Dllexsim.log.dir=/app/logs/fix-demo-client
+      -Dllexsim.log.name=fix-demo-client
+      -Dfix.demo.logDir=/app/logs/fix-demo-client/quickfixj
+      -Dfix.demo.host=${FIX_CLIENT_HOST:-llexsimulator}
+      -Dfix.demo.port=${FIX_CLIENT_PORT:-9880}
+      -Dfix.demo.beginString=${FIX_CLIENT_BEGIN_STRING:-FIX.4.4}
+      -Dfix.demo.senderCompId=${FIX_CLIENT_SENDER_COMP_ID:-CLIENT1}
+      -Dfix.demo.targetCompId=${FIX_CLIENT_TARGET_COMP_ID:-LLEXSIM}
+      -Dfix.demo.defaultApplVerId=${FIX_CLIENT_DEFAULT_APPL_VER_ID:-FIX.4.4}
+      -Dfix.demo.symbol=${FIX_CLIENT_SYMBOL:-AAPL}
+      -Dfix.demo.side=${FIX_CLIENT_SIDE:-BUY}
+      -Dfix.demo.orderQty=${FIX_CLIENT_ORDER_QTY:-100}
+      -Dfix.demo.price=${FIX_CLIENT_PRICE:-100.25}
+      -Dfix.demo.rawLoggingEnabled=${FIX_CLIENT_RAW_LOGGING_ENABLED:-false}
+      -Dfix.demo.heartBtInt=${FIX_CLIENT_HEARTBTINT:-30}
+      -Dfix.demo.reconnectIntervalSec=${FIX_CLIENT_RECONNECT_INTERVAL_SEC:-5}
+      -cp app.jar com.llexsimulator.client.FixDemoClientMain ${FIX_DEMO_RATE:-100}
+    volumes:
+      - ${APP_DIR}/logs:/app/logs
+    restart: "no"
 EOF_COMPOSE_TAIL
 } > "${compose_file}"
 
@@ -175,6 +214,7 @@ web_port=${WEB_PORT}
 fix_port=${FIX_PORT}
 public_web_port=${PUBLIC_WEB_PORT}
 public_fix_port=${PUBLIC_FIX_PORT}
+target_platform=${TARGET_PLATFORM}
 app_dir=${APP_DIR}
 cpuset=${CPUSET_MODE}
 EOF_MANIFEST
