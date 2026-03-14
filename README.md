@@ -20,6 +20,7 @@ A **zero-GC, ultra-low-latency** FIX Exchange Simulator designed for **performan
 - [Running Locally (JVM)](#running-locally-jvm)
 - [Docker Deployment](#docker-deployment)
   - [Management Script Reference](#management-script-reference)
+  - [Deploying to a Fresh Ubuntu Droplet](#deploying-to-a-fresh-ubuntu-droplet)
 - [Configuration](#configuration)
 - [REST API Reference](#rest-api-reference)
 - [WebSocket Events](#websocket-events)
@@ -299,6 +300,157 @@ LOG_LINES=500 ./scripts/llexsim.sh logs
 |---|---|---|
 | `8080` | HTTP/WS | Web UI, REST API, WebSocket (`/ws`) |
 | `9880` | TCP | FIX acceptor (all FIX versions) |
+
+### Deploying to a Fresh Ubuntu Droplet
+
+This repository includes three helper scripts for a brand-new Ubuntu droplet:
+
+- [`scripts/setup_droplet_for_docker.sh`](scripts/setup_droplet_for_docker.sh) — install Docker and baseline deployment tooling
+- [`scripts/release_to_droplet.sh`](scripts/release_to_droplet.sh) — rebuild locally and deploy the Docker image remotely
+- [`scripts/setup_https_for_hostname.sh`](scripts/setup_https_for_hostname.sh) — configure Nginx + Certbot for a public hostname
+
+All three scripts use the same SSH argument style:
+
+```bash
+./scripts/<script-name> <host-or-ip> <ssh-key-path> <ssh-user> [options]
+```
+
+#### Step 1 — Provision the droplet for Docker
+
+Run this once on a fresh Ubuntu droplet:
+
+```bash
+./scripts/setup_droplet_for_docker.sh 178.128.210.121 ~/.ssh/id_rsa_ai root
+```
+
+What it does:
+
+- installs Docker Engine from Docker's official Ubuntu repository
+- installs deployment helpers such as `git`, `rsync`, `curl`, `jq`, `ufw`, and `fail2ban`
+- enables `docker` and `containerd`
+- creates `/opt/llexsimulator/{config,logs,releases}`
+
+Security defaults:
+
+- UFW opens **SSH only** by default
+- the web port and FIX port remain closed unless you explicitly opt in
+
+If you intentionally want a public firewall rule later, you can opt in during provisioning:
+
+```bash
+./scripts/setup_droplet_for_docker.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --open-web-port
+./scripts/setup_droplet_for_docker.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --open-fix-port
+```
+
+#### Step 2 — Build locally and deploy the simulator
+
+From your local machine, rebuild and deploy to the droplet:
+
+```bash
+./scripts/release_to_droplet.sh 178.128.210.121 ~/.ssh/id_rsa_ai root
+```
+
+What this script does:
+
+1. runs `./scripts/llexsim.sh build` locally
+2. syncs `config/` to `/opt/llexsimulator/config/` on the droplet
+3. streams the Docker image to the droplet using `docker save | ssh ... docker load`
+4. writes `/opt/llexsimulator/docker-compose.yml`
+5. starts or recreates the container remotely and waits for health
+
+Secure deployment defaults:
+
+- the web/API port binds to `127.0.0.1:8080` on the droplet
+- the FIX port binds to `127.0.0.1:9880` on the droplet
+- neither service is internet-facing by default
+
+That means the intended public web entrypoint is an HTTPS reverse proxy such as Nginx, and the intended FIX access path is either local-on-droplet use or SSH tunneling from your workstation.
+
+If you explicitly want public Docker port publishing later, the release script supports opt-in flags:
+
+```bash
+./scripts/release_to_droplet.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --public-web-port
+./scripts/release_to_droplet.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --public-fix-port
+```
+
+#### Step 3 — Point your hostname at the droplet
+
+Before requesting an HTTPS certificate, create a DNS `A` record such as:
+
+```text
+sim.example.com -> 178.128.210.121
+```
+
+Important routing model:
+
+- DNS maps the hostname to the droplet IP only
+- Nginx on the droplet maps that hostname to `http://127.0.0.1:8080`
+- DNS does **not** know or care where `/opt/llexsimulator` lives on disk
+
+#### Step 4 — Configure HTTPS for the hostname
+
+After the app is deployed and the DNS `A` record is live, configure Nginx + Certbot:
+
+```bash
+./scripts/setup_https_for_hostname.sh \
+  178.128.210.121 \
+  ~/.ssh/id_rsa_ai \
+  root \
+  --fqdn sim.example.com \
+  --email ops@example.com
+```
+
+This script:
+
+- installs `nginx`, `certbot`, and `python3-certbot-nginx`
+- creates an Nginx reverse-proxy config for your hostname
+- proxies public HTTP/HTTPS traffic to `http://127.0.0.1:8080`
+- obtains and installs a Let's Encrypt certificate
+- enables redirect from HTTP to HTTPS
+
+After it completes, the expected public entrypoint is:
+
+```text
+https://sim.example.com
+```
+
+If you want the script to remove an old firewall rule that exposed port `8080`, use:
+
+```bash
+./scripts/setup_https_for_hostname.sh \
+  178.128.210.121 \
+  ~/.ssh/id_rsa_ai \
+  root \
+  --fqdn sim.example.com \
+  --email ops@example.com \
+  --close-direct-web-port
+```
+
+#### Step 5 — Access FIX locally via SSH tunnel
+
+By default, the FIX acceptor is local-only on the droplet at `127.0.0.1:9880`.
+
+If you want to run the demo FIX client from your laptop, open an SSH tunnel first:
+
+```bash
+ssh -i ~/.ssh/id_rsa_ai -N -L 9880:127.0.0.1:9880 root@178.128.210.121
+```
+
+Then, in another terminal, run the demo client against your local forwarded port:
+
+```bash
+FIX_CLIENT_HOST=localhost FIX_CLIENT_PORT=9880 ./scripts/fix-demo-client.sh run 100
+```
+
+#### Step 6 — Useful dry runs
+
+All droplet scripts support a dry-run mode so you can inspect the remote commands before executing them:
+
+```bash
+./scripts/setup_droplet_for_docker.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --dry-run
+./scripts/release_to_droplet.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --dry-run
+./scripts/setup_https_for_hostname.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --fqdn sim.example.com --dry-run
+```
 
 ---
 
