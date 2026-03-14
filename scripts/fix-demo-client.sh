@@ -5,6 +5,11 @@
 # Usage:
 #   ./scripts/fix-demo-client.sh <command> [rate-per-second]
 #
+# Rate precedence:
+#   1. explicit positional [rate-per-second]
+#   2. FIX_DEMO_RATE environment variable
+#   3. default 100 msg/s
+#
 # Commands:
 #   start [rate]   Start the demo client in background (default: 100 msg/s)
 #   run   [rate]   Run the demo client in foreground
@@ -24,7 +29,7 @@ LOG_ROOT="${PROJECT_ROOT}/logs/fix-demo-client"
 QFJ_LOG_DIR="${LOG_ROOT}/quickfixj"
 PID_FILE="${LOG_ROOT}/demo-fix-client.pid"
 CONSOLE_LOG="${LOG_ROOT}/console.log"
-DEFAULT_RATE="100"
+DEFAULT_RATE="${FIX_DEMO_RATE:-100}"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'

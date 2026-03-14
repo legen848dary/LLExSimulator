@@ -537,6 +537,14 @@ fixed rate until stopped.
 ./scripts/clean-ledgers.sh                # clear client/session ledgers and runtime state
 ```
 
+Local helpers also honor `FIX_DEMO_RATE` when no explicit positional rate is passed:
+
+```bash
+FIX_DEMO_RATE=500 ./scripts/fix-demo-client.sh start
+FIX_DEMO_RATE=500 ./scripts/clean-and-run.sh
+FIX_DEMO_RATE=500 ./scripts/rebuild-and-run.sh
+```
+
 Run it in the foreground if you want to see connection and progress messages live:
 
 ```bash

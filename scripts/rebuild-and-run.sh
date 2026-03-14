@@ -5,6 +5,11 @@
 # Usage:
 #   ./scripts/rebuild-and-run.sh [rate-per-second]
 #
+# Rate precedence:
+#   1. explicit positional [rate-per-second]
+#   2. FIX_DEMO_RATE environment variable
+#   3. default 100 msg/s
+#
 # Steps
 #   1. clean-ledgers.sh     — stop simulator/client and remove ledger/runtime state
 #   2. llexsim.sh rebuild   — purge, Gradle build, Docker image, start container
@@ -37,7 +42,7 @@ require_script() {
     fi
 }
 
-RATE="${1:-100}"
+RATE="${1:-${FIX_DEMO_RATE:-100}}"
 
 require_script "${SCRIPTS_DIR}/llexsim.sh"
 require_script "${SCRIPTS_DIR}/fix-demo-client.sh"

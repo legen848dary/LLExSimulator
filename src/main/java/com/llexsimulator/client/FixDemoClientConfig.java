@@ -26,9 +26,9 @@ public record FixDemoClientConfig(
         boolean rawMessageLoggingEnabled
 ) {
 
-    public static FixDemoClientConfig from(String[] args) {
-        String argRate = args.length > 0 ? args[0] : null;
+    private static final String DEFAULT_RATE_PER_SECOND = "100";
 
+    public static FixDemoClientConfig from(String[] args) {
         return new FixDemoClientConfig(
                 stringProp("fix.demo.host", "localhost"),
                 intProp("fix.demo.port", 9880),
@@ -38,7 +38,7 @@ public record FixDemoClientConfig(
                 stringProp("fix.demo.defaultApplVerId", "FIX.4.4"),
                 intProp("fix.demo.heartBtInt", 30),
                 intProp("fix.demo.reconnectIntervalSec", 5),
-                positiveInt(argRate != null ? argRate : System.getProperty("fix.demo.rate", "100"), "fix.demo.rate"),
+                resolveRatePerSecond(args),
                 stringProp("fix.demo.symbol", "AAPL"),
                 parseSide(stringProp("fix.demo.side", "BUY")),
                 positiveDouble(System.getProperty("fix.demo.orderQty", "100"), "fix.demo.orderQty"),
@@ -97,12 +97,35 @@ public record FixDemoClientConfig(
         return Path.of(logDir, "messages");
     }
 
+    static int resolveRatePerSecond(String[] args) {
+        String argRate = args.length > 0 ? args[0] : null;
+        String propertyRate = System.getProperty("fix.demo.rate");
+        String envRate = System.getenv("FIX_DEMO_RATE");
+        return resolveRatePerSecond(argRate, propertyRate, envRate);
+    }
+
+    static int resolveRatePerSecond(String argRate, String propertyRate, String envRate) {
+        return positiveInt(firstNonBlank(argRate, propertyRate, envRate, DEFAULT_RATE_PER_SECOND), "fix.demo.rate");
+    }
+
     private static String stringProp(String key, String defaultValue) {
         String value = System.getProperty(key, defaultValue).trim();
         if (value.isEmpty()) {
             throw new IllegalArgumentException("Property '" + key + "' must not be blank");
         }
         return value;
+    }
+
+    private static String firstNonBlank(String... candidates) {
+        for (String candidate : candidates) {
+            if (candidate != null) {
+                String trimmed = candidate.trim();
+                if (!trimmed.isEmpty()) {
+                    return trimmed;
+                }
+            }
+        }
+        throw new IllegalArgumentException("Expected at least one non-blank value");
     }
 
     private static int intProp(String key, int defaultValue) {

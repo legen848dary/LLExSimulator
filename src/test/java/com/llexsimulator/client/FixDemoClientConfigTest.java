@@ -6,6 +6,7 @@ import quickfix.SessionID;
 import quickfix.SessionSettings;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class FixDemoClientConfigTest {
@@ -40,7 +41,15 @@ class FixDemoClientConfigTest {
         assertEquals("250", Integer.toString(config.ratePerSecond()));
         assertEquals("logs/fix-demo-client/test-qfj/store", config.storeDir().toString());
         assertEquals("logs/fix-demo-client/test-qfj/messages", config.rawLogDir().toString());
-        assertEquals(false, config.rawMessageLoggingEnabled());
+        assertFalse(config.rawMessageLoggingEnabled());
+    }
+
+    @Test
+    void resolvesRateUsingCliThenPropertyThenEnvThenDefault() {
+        assertEquals(700, FixDemoClientConfig.resolveRatePerSecond("700", "600", "500"));
+        assertEquals(600, FixDemoClientConfig.resolveRatePerSecond(null, "600", "500"));
+        assertEquals(500, FixDemoClientConfig.resolveRatePerSecond(null, null, "500"));
+        assertEquals(100, FixDemoClientConfig.resolveRatePerSecond(null, null, null));
     }
 
     @Test

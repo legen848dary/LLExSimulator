@@ -258,12 +258,16 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
         lastExecReportSnapshot = execReports;
         lastRejectSnapshot = rejects;
 
+        long sentPerSecond = Math.round(sentDelta / 5.0d);
+        long execPerSecond = Math.round(execDelta / 5.0d);
+        long rejectPerSecond = Math.round(rejectDelta / 5.0d);
+
         log.info(PROGRESS,
-                "--- PROGRESS --- loggedOn={} session={} | sent={} (+{}/5s) | execReports={} (+{}/5s) | rejects={} (+{}/5s) | sendFailures={}",
+                "--- PROGRESS --- loggedOn={} session={} | sent={} (+{}/5s ~= {}/s) | execReports={} (+{}/5s ~= {}/s) | rejects={} (+{}/5s ~= {}/s) | sendFailures={}",
                 loggedOn.get(), activeSessionId.get(),
-                sent, sentDelta,
-                execReports, execDelta,
-                rejects, rejectDelta,
+                sent, sentDelta, sentPerSecond,
+                execReports, execDelta, execPerSecond,
+                rejects, rejectDelta, rejectPerSecond,
                 sendFailureCount.get());
     }
 
