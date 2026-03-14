@@ -320,7 +320,7 @@ All three scripts use the same SSH argument style:
 Run this once on a fresh Ubuntu droplet:
 
 ```bash
-./scripts/setup_droplet_for_docker.sh 178.128.210.121 ~/.ssh/id_rsa_ai root
+./scripts/setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root
 ```
 
 What it does:
@@ -338,8 +338,8 @@ Security defaults:
 If you intentionally want a public firewall rule later, you can opt in during provisioning:
 
 ```bash
-./scripts/setup_droplet_for_docker.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --open-web-port
-./scripts/setup_droplet_for_docker.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --open-fix-port
+./scripts/setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --open-web-port
+./scripts/setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --open-fix-port
 ```
 
 #### Step 2 — Build locally and deploy the simulator
@@ -347,7 +347,7 @@ If you intentionally want a public firewall rule later, you can opt in during pr
 From your local machine, rebuild and deploy to the droplet:
 
 ```bash
-./scripts/release_to_droplet.sh 178.128.210.121 ~/.ssh/id_rsa_ai root
+./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
 ```
 
 What this script does:
@@ -369,8 +369,8 @@ That means the intended public web entrypoint is an HTTPS reverse proxy such as 
 If you explicitly want public Docker port publishing later, the release script supports opt-in flags:
 
 ```bash
-./scripts/release_to_droplet.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --public-web-port
-./scripts/release_to_droplet.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --public-fix-port
+./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --public-web-port
+./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --public-fix-port
 ```
 
 #### Step 3 — Point your hostname at the droplet
@@ -378,7 +378,7 @@ If you explicitly want public Docker port publishing later, the release script s
 Before requesting an HTTPS certificate, create a DNS `A` record such as:
 
 ```text
-sim.example.com -> 178.128.210.121
+sim.example.com -> 203.0.113.10
 ```
 
 Important routing model:
@@ -393,8 +393,8 @@ After the app is deployed and the DNS `A` record is live, configure Nginx + Cert
 
 ```bash
 ./scripts/setup_https_for_hostname.sh \
-  178.128.210.121 \
-  ~/.ssh/id_rsa_ai \
+  203.0.113.10 \
+  ~/.ssh/<your-private-key> \
   root \
   --fqdn sim.example.com \
   --email ops@example.com
@@ -418,8 +418,8 @@ If you want the script to remove an old firewall rule that exposed port `8080`, 
 
 ```bash
 ./scripts/setup_https_for_hostname.sh \
-  178.128.210.121 \
-  ~/.ssh/id_rsa_ai \
+  203.0.113.10 \
+  ~/.ssh/<your-private-key> \
   root \
   --fqdn sim.example.com \
   --email ops@example.com \
@@ -433,7 +433,7 @@ By default, the FIX acceptor is local-only on the droplet at `127.0.0.1:9880`.
 If you want to run the demo FIX client from your laptop, open an SSH tunnel first:
 
 ```bash
-ssh -i ~/.ssh/id_rsa_ai -N -L 9880:127.0.0.1:9880 root@178.128.210.121
+ssh -i ~/.ssh/<your-private-key> -N -L 9880:127.0.0.1:9880 root@203.0.113.10
 ```
 
 Then, in another terminal, run the demo client against your local forwarded port:
@@ -447,9 +447,9 @@ FIX_CLIENT_HOST=localhost FIX_CLIENT_PORT=9880 ./scripts/fix-demo-client.sh run 
 All droplet scripts support a dry-run mode so you can inspect the remote commands before executing them:
 
 ```bash
-./scripts/setup_droplet_for_docker.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --dry-run
-./scripts/release_to_droplet.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --dry-run
-./scripts/setup_https_for_hostname.sh 178.128.210.121 ~/.ssh/id_rsa_ai root --fqdn sim.example.com --dry-run
+./scripts/setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
+./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
+./scripts/setup_https_for_hostname.sh 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --dry-run
 ```
 
 ---

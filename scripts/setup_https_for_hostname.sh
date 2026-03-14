@@ -68,9 +68,9 @@ ${BOLD}Optional options:${RESET}
   ${GREEN}help${RESET}                      Show this help
 
 ${BOLD}Examples:${RESET}
-  ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai root --fqdn sim.example.com --email ops@example.com
-  ./scripts/${SCRIPT_NAME} droplet.example.net ~/.ssh/id_rsa_ai ubuntu --fqdn sim.example.com --app-port 8080
-  ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai root --fqdn sim.example.com --dry-run
+  ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --email ops@example.com
+  ./scripts/${SCRIPT_NAME} your-droplet.example.net ~/.ssh/<your-private-key> ubuntu --fqdn sim.example.com --app-port 8080
+  ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --dry-run
 
 ${BOLD}Important:${RESET}
   - Your DNS ${BOLD}A${RESET} record for the FQDN must already point to the droplet's public IP.

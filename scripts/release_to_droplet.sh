@@ -91,12 +91,12 @@ ${BOLD}Options:${RESET}
   ${GREEN}help${RESET}                      Show this help
 
 ${BOLD}Examples:${RESET}
-      ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai root
-      ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai deploy --no-cache
-      ./scripts/${SCRIPT_NAME} example.com ~/.ssh/id_rsa_ai ubuntu --no-build --skip-config-sync
-      ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai root --cpuset none --wait-seconds 180
-      ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai root --public-fix-port
-      ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai root --dry-run
+      ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root
+      ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> deploy --no-cache
+      ./scripts/${SCRIPT_NAME} your-droplet.example.com ~/.ssh/<your-private-key> ubuntu --no-build --skip-config-sync
+      ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --cpuset none --wait-seconds 180
+      ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --public-fix-port
+      ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
 
 ${BOLD}Deployment flow:${RESET}
   1. Local build using ./scripts/llexsim.sh build

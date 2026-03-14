@@ -72,9 +72,9 @@ ${BOLD}Options:${RESET}
   ${GREEN}help${RESET}                      Show this help
 
 ${BOLD}Examples:${RESET}
-          ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai root
-          ./scripts/${SCRIPT_NAME} example.com ~/.ssh/id_rsa_ai ubuntu --dry-run
-          ./scripts/${SCRIPT_NAME} 178.128.210.121 ~/.ssh/id_rsa_ai deploy --app-dir /opt/llexsimulator
+          ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> root
+          ./scripts/${SCRIPT_NAME} your-droplet.example.com ~/.ssh/<your-private-key> ubuntu --dry-run
+          ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> deploy --app-dir /opt/llexsimulator
 
 ${BOLD}Notes:${RESET}
   - The script expects a fresh Ubuntu droplet and root SSH access.
