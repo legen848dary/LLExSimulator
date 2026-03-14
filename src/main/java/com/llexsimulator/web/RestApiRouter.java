@@ -47,6 +47,7 @@ public final class RestApiRouter {
 
         // ── Sessions ──────────────────────────────────────────────────────────
         router.get("/api/sessions").handler(sessionHandler.list());
+        router.get("/api/sessions/recent-disconnects").handler(sessionHandler.recentDisconnects());
         router.delete("/api/sessions/:id").handler(sessionHandler.disconnect());
 
         // ── Static SPA (Vue.js 3 + Tailwind) ─────────────────────────────────

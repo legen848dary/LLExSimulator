@@ -48,8 +48,10 @@ public final class FixSessionApplication implements SessionAcquireHandler {
 
         SessionWriter writer = currentLibrary.sessionWriter(session.id(), session.connectionId(), session.sequenceIndex());
         FixConnection connection = registry.register(session, writer);
-        log.info("FIX logon: session={} connId={} slow={} metaDataStatus={}",
-                connection.sessionKey(), connection.connectionId(), acquiredInfo.isSlow(), acquiredInfo.metaDataStatus());
+        connection.onSlowStatus(session, acquiredInfo.isSlow());
+        log.info("FIX logon: session={} connId={} slow={} metaDataStatus={} seqIdx={} rxSeq={} txSeq={}",
+                connection.sessionKey(), connection.connectionId(), acquiredInfo.isSlow(), acquiredInfo.metaDataStatus(),
+                connection.sequenceIndex(), connection.lastReceivedMsgSeqNum(), connection.lastSentMsgSeqNum());
         return new InboundSessionHandler(connection);
     }
 
@@ -73,7 +75,7 @@ public final class FixSessionApplication implements SessionAcquireHandler {
                 return Action.CONTINUE;
             }
 
-            connection.sequenceIndex(sequenceIndex);
+            connection.onInboundMessage(session, sequenceIndex, messageType, position);
             long arrivalNs = System.nanoTime();
             asciiBuffer.wrap(buffer);
 
@@ -90,19 +92,29 @@ public final class FixSessionApplication implements SessionAcquireHandler {
 
         @Override
         public void onTimeout(int libraryId, Session session) {
-            log.warn("FIX session timeout: {}", connection.sessionKey());
+            connection.onTimeout(session);
+            log.warn("FIX session timeout: session={} seqIdx={} rxSeq={} txSeq={} inbound={} lastInboundType={} lastDisconnectReason={}",
+                    connection.sessionKey(), connection.sequenceIndex(), connection.lastReceivedMsgSeqNum(),
+                    connection.lastSentMsgSeqNum(), connection.inboundMessageCount(), connection.lastInboundMsgType(),
+                    connection.lastDisconnectReason());
         }
 
         @Override
         public void onSlowStatus(int libraryId, Session session, boolean hasBecomeSlow) {
-            log.warn("FIX slow-consumer status changed: session={} slow={}", connection.sessionKey(), hasBecomeSlow);
+            connection.onSlowStatus(session, hasBecomeSlow);
+            log.warn("FIX slow-consumer status changed: session={} slow={} seqIdx={} rxSeq={} txSeq={} inbound={}",
+                    connection.sessionKey(), hasBecomeSlow, connection.sequenceIndex(),
+                    connection.lastReceivedMsgSeqNum(), connection.lastSentMsgSeqNum(), connection.inboundMessageCount());
         }
 
         @Override
         public Action onDisconnect(int libraryId, Session session, DisconnectReason reason) {
-            connection.markDisconnected();
-            registry.remove(connection.connectionId());
-            log.info("FIX logout: session={} reason={}", connection.sessionKey(), reason);
+            connection.onDisconnect(session, reason.name());
+            registry.archiveAndRemove(connection.connectionId());
+            log.info("FIX logout: session={} reason={} seqIdx={} rxSeq={} txSeq={} inbound={} outOk={} backpressure={} sendFailures={} recentEvents={}",
+                    connection.sessionKey(), reason, connection.sequenceIndex(), connection.lastReceivedMsgSeqNum(),
+                    connection.lastSentMsgSeqNum(), connection.inboundMessageCount(), connection.outboundSendSuccessCount(),
+                    connection.outboundBackpressureCount(), connection.outboundSendFailureCount(), connection.recentEventsSnapshot());
             return Action.CONTINUE;
         }
 

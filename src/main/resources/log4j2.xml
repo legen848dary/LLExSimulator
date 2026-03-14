@@ -24,6 +24,11 @@
     <Property name="LOG_NAME">${sys:llexsim.log.name:-llexsimulator}</Property>
     <Property name="FILE_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
     <Property name="CONSOLE_PATTERN">%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
+    <Property name="APP_LOG_LEVEL">${sys:llexsim.log.level:-INFO}</Property>
+    <Property name="CLIENT_LOG_LEVEL">${sys:llexsim.client.log.level:-INFO}</Property>
+    <Property name="FIX_SESSION_LOG_LEVEL">${sys:llexsim.fix.session.log.level:-INFO}</Property>
+    <Property name="QUICKFIX_LOG_LEVEL">${sys:llexsim.quickfix.log.level:-INFO}</Property>
+    <Property name="ARTIO_LOG_LEVEL">${sys:llexsim.artio.log.level:-INFO}</Property>
   </Properties>
 
   <Appenders>
@@ -63,17 +68,17 @@
   <Loggers>
 
     <!-- ── Third-party noise suppression ──────────────────────────────────── -->
-    <Logger name="quickfix"      level="DEBUG" additivity="false">
+    <Logger name="quickfix"      level="${QUICKFIX_LOG_LEVEL}" additivity="false">
       <AppenderRef ref="FILE"/>
-      <AppenderRef ref="CONSOLE" level="INFO"/>
+      <AppenderRef ref="CONSOLE" level="WARN"/>
     </Logger>
-    <Logger name="quickfixj"     level="DEBUG" additivity="false">
+    <Logger name="quickfixj"     level="${QUICKFIX_LOG_LEVEL}" additivity="false">
       <AppenderRef ref="FILE"/>
-      <AppenderRef ref="CONSOLE" level="INFO"/>
+      <AppenderRef ref="CONSOLE" level="WARN"/>
     </Logger>
-    <Logger name="org.quickfixj" level="DEBUG" additivity="false">
+    <Logger name="org.quickfixj" level="${QUICKFIX_LOG_LEVEL}" additivity="false">
       <AppenderRef ref="FILE"/>
-      <AppenderRef ref="CONSOLE" level="INFO"/>
+      <AppenderRef ref="CONSOLE" level="WARN"/>
     </Logger>
     <Logger name="io.aeron"      level="INFO" additivity="false">
       <AppenderRef ref="FILE"/>
@@ -89,7 +94,7 @@
       the session LOGOUT (sequence-number events, slow-consumer, term-roll, etc.).
       CONSOLE is WARN-only to avoid flooding stdout.
     -->
-    <Logger name="uk.co.real_logic.artio" level="DEBUG" additivity="false">
+    <Logger name="uk.co.real_logic.artio" level="${ARTIO_LOG_LEVEL}" additivity="false">
       <AppenderRef ref="FILE"/>
       <AppenderRef ref="CONSOLE" level="WARN"/>
     </Logger>
@@ -99,15 +104,24 @@
       blocked by I/O.  Both CONSOLE and FILE are included so that CONNECT,
       DISCONNECT, and PROGRESS events appear on the terminal in real time.
     -->
-    <AsyncLogger name="com.llexsimulator.client" level="DEBUG" additivity="false">
+    <AsyncLogger name="com.llexsimulator.client" level="${CLIENT_LOG_LEVEL}" additivity="false">
       <AppenderRef ref="CONSOLE"/>
       <AppenderRef ref="FILE"/>
     </AsyncLogger>
 
     <!--
-      Main simulator code — DEBUG to both appenders during investigation.
+      Simulator FIX session lifecycle diagnostics can be elevated independently
+      of the rest of the simulator with -Dllexsim.fix.session.log.level=DEBUG.
     -->
-    <AsyncLogger name="com.llexsimulator" level="DEBUG" additivity="false">
+    <AsyncLogger name="com.llexsimulator.engine.FixSessionApplication" level="${FIX_SESSION_LOG_LEVEL}" additivity="false">
+      <AppenderRef ref="CONSOLE"/>
+      <AppenderRef ref="FILE"/>
+    </AsyncLogger>
+
+    <!--
+      Main simulator code — INFO by default; increase with -Dllexsim.log.level.
+    -->
+    <AsyncLogger name="com.llexsimulator" level="${APP_LOG_LEVEL}" additivity="false">
       <AppenderRef ref="CONSOLE"/>
       <AppenderRef ref="FILE"/>
     </AsyncLogger>

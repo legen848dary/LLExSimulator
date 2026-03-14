@@ -40,6 +40,7 @@ class FixDemoClientConfigTest {
         assertEquals("250", Integer.toString(config.ratePerSecond()));
         assertEquals("logs/fix-demo-client/test-qfj/store", config.storeDir().toString());
         assertEquals("logs/fix-demo-client/test-qfj/messages", config.rawLogDir().toString());
+        assertEquals(false, config.rawMessageLoggingEnabled());
     }
 
     @Test

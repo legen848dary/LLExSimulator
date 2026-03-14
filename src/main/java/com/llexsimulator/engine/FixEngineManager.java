@@ -15,6 +15,7 @@ import uk.co.real_logic.artio.validation.SessionPersistenceStrategy;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -23,13 +24,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class FixEngineManager {
 
     private static final Logger log = LoggerFactory.getLogger(FixEngineManager.class);
-    private static final int POLL_FRAGMENT_LIMIT = 10;
+    private static final int POLL_FRAGMENT_LIMIT = 256;
+    private static final int MAX_POLL_BATCHES_PER_CYCLE = 8;
+    private static final int EMPTY_POLLS_BEFORE_YIELD = 100;
+    private static final int EMPTY_POLLS_BEFORE_PARK = 1_000;
+    private static final long PARK_NANOS = 50_000L;
     private static final String ARCHIVE_CONTROL_REQUEST_CHANNEL = "aeron:ipc?term-length=65536";
     private static final String ARCHIVE_CONTROL_RESPONSE_CHANNEL = "aeron:ipc?term-length=65536";
     private static final String ARCHIVE_RECORDING_EVENTS_CHANNEL = "aeron:ipc?term-length=65536";
 
     private final FixSessionApplication app;
     private final SimulatorConfig config;
+    private final FixOutboundSender outboundSender;
 
     private FixEngine engine;
     private FixLibrary library;
@@ -37,9 +43,10 @@ public final class FixEngineManager {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile boolean started;
 
-    public FixEngineManager(FixSessionApplication app, SimulatorConfig config) {
+    public FixEngineManager(FixSessionApplication app, SimulatorConfig config, FixOutboundSender outboundSender) {
         this.app = app;
         this.config = config;
+        this.outboundSender = outboundSender;
     }
 
     public void start() throws Exception {
@@ -138,18 +145,34 @@ public final class FixEngineManager {
     }
 
     private void pollLibrary() {
+        int consecutiveEmptyPolls = 0;
         while (running.get()) {
-            int workCount = library.poll(POLL_FRAGMENT_LIMIT);
-            if (workCount == 0) {
-                if ("BUSY_SPIN".equalsIgnoreCase(config.waitStrategy())) {
-                    Thread.onSpinWait();
-                } else {
-                    try {
-                        Thread.sleep(1L);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
+            int totalWorkCount = 0;
+            for (int batch = 0; batch < MAX_POLL_BATCHES_PER_CYCLE; batch++) {
+                int workCount = library.poll(POLL_FRAGMENT_LIMIT);
+                totalWorkCount += workCount;
+                if (workCount < POLL_FRAGMENT_LIMIT) {
+                    break;
+                }
+            }
+
+            totalWorkCount += outboundSender.drain();
+
+            if (totalWorkCount > 0) {
+                consecutiveEmptyPolls = 0;
+                continue;
+            }
+
+            consecutiveEmptyPolls++;
+            if (consecutiveEmptyPolls <= EMPTY_POLLS_BEFORE_YIELD) {
+                Thread.onSpinWait();
+            } else if (consecutiveEmptyPolls <= EMPTY_POLLS_BEFORE_PARK) {
+                Thread.yield();
+            } else {
+                LockSupport.parkNanos(PARK_NANOS);
+                if (Thread.currentThread().isInterrupted()) {
+                    Thread.currentThread().interrupt();
+                    return;
                 }
             }
         }

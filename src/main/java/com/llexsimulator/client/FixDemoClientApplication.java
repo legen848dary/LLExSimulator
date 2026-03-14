@@ -232,7 +232,7 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
                 new Side(config.side()),
                 new TransactTime(LocalDateTime.now(ZoneOffset.UTC)),
                 new OrdType(OrdType.LIMIT));
-        order.set(new HandlInst(HandlInst.AUTOMATED_EXECUTION_ORDER_PRIVATE_NO_BROKER_INTERVENTION));
+        order.set(new HandlInst(HandlInst.AUTOMATED_EXECUTION_NO_INTERVENTION));
         order.set(new Symbol(symbol));
         order.set(new OrderQty(config.orderQty()));
         order.set(new Price(config.price()));

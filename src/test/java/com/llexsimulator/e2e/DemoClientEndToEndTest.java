@@ -1,5 +1,7 @@
 package com.llexsimulator.e2e;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.llexsimulator.SimulatorBootstrap;
 import com.llexsimulator.client.FixDemoClientApplication;
 import com.llexsimulator.client.FixDemoClientConfig;
@@ -17,18 +19,27 @@ import quickfix.SessionSettings;
 import quickfix.SocketInitiator;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.ServerSocket;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DemoClientEndToEndTest {
 
     private static final Duration LOGON_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration SOAK_DURATION = Duration.ofSeconds(60);
+    private static final Duration DISCONNECT_TIMEOUT = Duration.ofSeconds(10);
 
     @TempDir
     Path tempDir;
@@ -73,9 +84,9 @@ class DemoClientEndToEndTest {
         System.setProperty("web.port", Integer.toString(webPort));
         System.setProperty("fix.demo.port", Integer.toString(fixPort));
         System.setProperty("fix.demo.logDir", clientLogDir.toString());
-        System.setProperty("fix.demo.rawLoggingEnabled", "true");
-        System.setProperty("fix.raw.message.logging.enabled", "true");
-        System.setProperty("fix.demo.rate", "100");
+        System.setProperty("fix.demo.rawLoggingEnabled", "false");
+        System.setProperty("fix.raw.message.logging.enabled", "false");
+        System.setProperty("fix.demo.rate", "2000");
 
         bootstrap = new SimulatorBootstrap();
         bootstrap.start();
@@ -108,6 +119,30 @@ class DemoClientEndToEndTest {
         assertEquals(0L, app.rejectCount(), "Did not expect business rejects during the happy-path soak run");
         assertEquals(0L, app.sendFailureCount(), "Did not expect send failures during the soak run");
 
+        initiator.stop(true);
+
+        Instant disconnectDeadline = Instant.now().plus(DISCONNECT_TIMEOUT);
+        while (Instant.now().isBefore(disconnectDeadline) && app.logoutCount() == 0L) {
+            Thread.sleep(100L);
+        }
+
+        assertTrue(app.logoutCount() > 0L, "Expected the client to observe a logout after initiator shutdown");
+
+        List<Map<String, Object>> disconnects = fetchRecentDisconnects(webPort);
+        assertFalse(disconnects.isEmpty(), "Expected at least one recent disconnect to be archived by the simulator");
+        Map<String, Object> latestDisconnect = disconnects.getFirst();
+        assertEquals("FIX.4.4:LLEXSIM->CLIENT1#1", latestDisconnect.get("sessionKey"));
+        assertTrue(((Number)latestDisconnect.get("disconnectCount")).longValue() >= 1L,
+                "Expected the archived disconnect snapshot to include disconnectCount >= 1");
+        assertTrue(((String)latestDisconnect.get("lastDisconnectReason")).length() > 0,
+                "Expected the archived disconnect snapshot to capture a disconnect reason");
+        assertFalse("NONE".equals(latestDisconnect.get("lastDisconnectReason")),
+                "Expected the archived disconnect snapshot to contain a real disconnect reason");
+        assertTrue(((List<?>)latestDisconnect.get("recentEvents")).stream()
+                        .map(String::valueOf)
+                        .anyMatch(event -> event.contains("DISCONNECT reason=")),
+                "Expected recentEvents to include the disconnect transition");
+
         System.out.printf(
                 "DemoClientEndToEndTest SUCCESS: soak=%ss rate=%dmsg/s fixPort=%d webPort=%d logons=%d logouts=%d sent=%d execReports=%d rejects=%d sendFailures=%d%n",
                 SOAK_DURATION.toSeconds(),
@@ -127,6 +162,16 @@ class DemoClientEndToEndTest {
             socket.setReuseAddress(true);
             return socket.getLocalPort();
         }
+    }
+
+    private static List<Map<String, Object>> fetchRecentDisconnects(int webPort) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://127.0.0.1:" + webPort + "/api/sessions/recent-disconnects?limit=5"))
+                .GET()
+                .build();
+        HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode(), "Expected recent disconnect diagnostics endpoint to return HTTP 200");
+        return new ObjectMapper().readValue(response.body(), new TypeReference<>() {});
     }
 
     private static void clearProperty(String key) {

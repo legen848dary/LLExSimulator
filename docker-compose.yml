@@ -35,6 +35,7 @@ services:
         -Daeron.threading.mode=SHARED
         -Daeron.shared.idle.strategy=backoff
         -Dagrona.disable.bounds.checks=true
+        --add-exports java.base/jdk.internal.misc=ALL-UNNAMED
         --add-opens java.base/sun.nio.ch=ALL-UNNAMED
         --add-opens java.base/java.nio=ALL-UNNAMED
         --add-opens java.base/java.lang=ALL-UNNAMED

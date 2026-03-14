@@ -99,7 +99,7 @@ java_cmd() {
       -Dfix.demo.side="${FIX_CLIENT_SIDE:-BUY}" \
       -Dfix.demo.orderQty="${FIX_CLIENT_ORDER_QTY:-100}" \
       -Dfix.demo.price="${FIX_CLIENT_PRICE:-100.25}" \
-      -Dfix.demo.rawLoggingEnabled="${FIX_CLIENT_RAW_LOGGING_ENABLED:-true}" \
+      -Dfix.demo.rawLoggingEnabled="${FIX_CLIENT_RAW_LOGGING_ENABLED:-false}" \
       -Dfix.demo.heartBtInt="${FIX_CLIENT_HEARTBTINT:-30}" \
       -Dfix.demo.reconnectIntervalSec="${FIX_CLIENT_RECONNECT_INTERVAL_SEC:-5}" \
       -cp "${JAR_PATH}" \
@@ -125,7 +125,7 @@ exec_java_cmd() {
       -Dfix.demo.side="${FIX_CLIENT_SIDE:-BUY}" \
       -Dfix.demo.orderQty="${FIX_CLIENT_ORDER_QTY:-100}" \
       -Dfix.demo.price="${FIX_CLIENT_PRICE:-100.25}" \
-      -Dfix.demo.rawLoggingEnabled="${FIX_CLIENT_RAW_LOGGING_ENABLED:-true}" \
+      -Dfix.demo.rawLoggingEnabled="${FIX_CLIENT_RAW_LOGGING_ENABLED:-false}" \
       -Dfix.demo.heartBtInt="${FIX_CLIENT_HEARTBTINT:-30}" \
       -Dfix.demo.reconnectIntervalSec="${FIX_CLIENT_RECONNECT_INTERVAL_SEC:-5}" \
       -cp "${JAR_PATH}" \

@@ -17,13 +17,17 @@ java {
     }
 }
 
-val aeronVersion     = "1.44.0"
+val aeronVersion     = "1.45.0"
 val agronaVersion    = "1.22.0"
 val artioVersion     = "0.154"
 val sbeVersion       = "1.30.0"
 val disruptorVersion = "4.0.0"
-val vertxVersion     = "4.5.10"
-val quickfixVersion  = "2.3.1"
+val vertxVersion     = "5.0.8"
+val quickfixVersion  = "3.0.0"
+val jacksonVersion   = "2.21.1"
+val slf4jVersion     = "2.0.17"
+val log4jVersion     = "2.25.3"
+val junitVersion     = "6.0.3"
 
 // Separate classpath used only for SBE code-gen; not added to the compile scope
 val sbeCodegen: Configuration by configurations.creating
@@ -52,9 +56,9 @@ dependencies {
     }
 
     // ── Aeron IPC transport (metrics pipeline) ─────────────────────────────────
-    implementation("io.aeron:aeron-driver:1.45.0")
-    implementation("io.aeron:aeron-client:1.45.0")
-    implementation("io.aeron:aeron-archive:1.45.0")
+    implementation("io.aeron:aeron-driver:$aeronVersion")
+    implementation("io.aeron:aeron-client:$aeronVersion")
+    implementation("io.aeron:aeron-archive:$aeronVersion")
 
     // ── Agrona — off-heap data structures ──────────────────────────────────────
     implementation("org.agrona:agrona:$agronaVersion")
@@ -75,19 +79,19 @@ dependencies {
     implementation("org.hdrhistogram:HdrHistogram:2.2.2")
 
     // ── JSON serialization (used in REST/WebSocket layer only) ─────────────────
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.0")
+    implementation("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion")
 
     // ── Logging — SLF4J 2 + Log4j2 fully-async (LMAX Disruptor ring buffer) ───
     // log4j-slf4j2-impl bridges SLF4J 2.x calls to Log4j2.
     // LMAX Disruptor (already on classpath) is picked up automatically by Log4j2
     // when AsyncLoggerContextSelector is active, giving lock-free logging on
     // the hot path with near-zero allocation.
-    implementation("org.slf4j:slf4j-api:2.0.16")
-    implementation("org.apache.logging.log4j:log4j-core:2.24.3")
-    implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.24.3")
+    implementation("org.slf4j:slf4j-api:$slf4jVersion")
+    implementation("org.apache.logging.log4j:log4j-core:$log4jVersion")
+    implementation("org.apache.logging.log4j:log4j-slf4j2-impl:$log4jVersion")
 
     // ── Testing ────────────────────────────────────────────────────────────────
-    testImplementation(platform("org.junit:junit-bom:5.10.3"))
+    testImplementation(platform("org.junit:junit-bom:$junitVersion"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("io.vertx:vertx-junit5")
@@ -119,6 +123,9 @@ val generateArtioSources by tasks.registering(JavaExec::class) {
         artioOutputDir.get().asFile.absolutePath,
         artioFixSpecDir.get().file("FIX44.xml").asFile.absolutePath
     )
+    jvmArgs(
+        "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED"
+    )
     doFirst {
         artioOutputDir.get().asFile.mkdirs()
     }
@@ -130,6 +137,9 @@ val generateSbeSources by tasks.registering(JavaExec::class) {
     classpath = sbeCodegen
     mainClass.set("uk.co.real_logic.sbe.SbeTool")
     args = listOf("src/main/resources/sbe/fix-messages.xml")
+    jvmArgs(
+        "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED"
+    )
     systemProperties(
         mapOf(
             "sbe.output.dir"               to sbeOutputDir.get().asFile.absolutePath,
@@ -176,6 +186,7 @@ tasks.withType<ShadowJar> {
 tasks.test {
     useJUnitPlatform()
     jvmArgs(
+        "--add-exports", "java.base/jdk.internal.misc=ALL-UNNAMED",
         "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED",
         "--add-opens", "java.base/java.nio=ALL-UNNAMED",
         "--add-opens", "java.base/java.lang=ALL-UNNAMED"

@@ -231,6 +231,7 @@ java \
   -Daeron.sender.idle.strategy=noop \
   -Daeron.receiver.idle.strategy=noop \
   -Dagrona.disable.bounds.checks=true \
+  --add-exports java.base/jdk.internal.misc=ALL-UNNAMED \
   --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
   --add-opens java.base/java.nio=ALL-UNNAMED \
   --add-opens java.base/java.lang=ALL-UNNAMED \
@@ -275,6 +276,8 @@ All Docker lifecycle operations are handled by a single script:
 ./scripts/llexsim.sh status         # Check health + resource usage
 ./scripts/llexsim.sh logs           # Follow live logs
 ./scripts/llexsim.sh restart        # Apply config change without full rebuild
+./scripts/stop-all.sh               # Stop both the demo client and simulator
+./scripts/clean-ledgers.sh          # Remove FIX/Aeron ledger state without deleting normal logs
 
 # ── Testing FIX connectivity ─────────────────────────────────────────────────
 ./scripts/llexsim.sh fix-connect    # Verify port 9880 is open
@@ -310,6 +313,8 @@ fixed rate until stopped.
 ./scripts/fix-demo-client.sh start 500    # send 500 NOS / second in background
 ./scripts/fix-demo-client.sh logs         # tail client progress
 ./scripts/fix-demo-client.sh stop         # stop the background client
+./scripts/stop-all.sh                     # stop both the background client and Docker simulator
+./scripts/clean-ledgers.sh                # clear client/session ledgers and runtime state
 ```
 
 Run it in the foreground if you want to see connection and progress messages live:
@@ -339,6 +344,46 @@ FIX_CLIENT_AERON_DIR=/tmp/aeron-llexsim ./scripts/fix-demo-client.sh run 100
 
 The demo client writes logs under `logs/fix-demo-client/` and keeps its QuickFIX/J
 session logs under `logs/fix-demo-client/quickfixj/`.
+
+---
+
+## Disconnect Troubleshooting
+
+When a disconnect happens, capture the simulator and client evidence immediately:
+
+```bash
+./scripts/capture-disconnect-evidence.sh
+```
+
+This writes a timestamped bundle under `logs/disconnect-evidence/` containing:
+
+- `recent-disconnects.json` — sticky simulator-side disconnect archive from `/api/sessions/recent-disconnects`
+- `sessions.json` — currently active session diagnostics from `/api/sessions`
+- `health.json` — health snapshot from `/api/health`
+- `simulator-log-tail.txt` — last 200 lines of `logs/llexsimulator.log`
+- `client-console-log-tail.txt` — last 200 lines of `logs/fix-demo-client/console.log`
+- `client-main-log-tail.txt` — last 200 lines of `logs/fix-demo-client/fix-demo-client.log`
+- `client-log-files.txt` — inventory of client-side QuickFIX/J/session log files
+
+Useful overrides:
+
+```bash
+EVIDENCE_WEB_PORT=9090 EVIDENCE_LIMIT=20 EVIDENCE_LOG_LINES=400 ./scripts/capture-disconnect-evidence.sh
+```
+
+If you want a custom output directory:
+
+```bash
+./scripts/capture-disconnect-evidence.sh /tmp/llex-disconnect-$(date +%Y%m%d-%H%M%S)
+```
+
+The first files to share for diagnosis are:
+
+- `recent-disconnects.json`
+- `sessions.json`
+- `health.json`
+- `simulator-log-tail.txt`
+- `client-console-log-tail.txt`
 
 ---
 
@@ -624,7 +669,10 @@ LLExSimulator/
 ├── docker-compose.yml                  # Docker Compose with ZGC JVM tuning + CPU pinning
 ├── Dockerfile                          # Multi-stage: Gradle build → lean JRE runtime
 ├── scripts/
-│   └── llexsim.sh                      # Docker lifecycle manager (start/stop/restart/clean/purge...)
+│   ├── llexsim.sh                      # Docker lifecycle manager (start/stop/restart/clean/purge...)
+│   ├── fix-demo-client.sh              # Demo FIX client lifecycle helper
+│   ├── stop-all.sh                     # Convenience wrapper: stop demo client + simulator together
+│   └── clean-ledgers.sh                # Removes FIX/Aeron ledger/state directories only
 ├── config/
 │   └── simulator.properties            # Override config (mounted read-only into container)
 └── src/main/

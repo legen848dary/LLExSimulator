@@ -36,6 +36,7 @@ RUN mkdir -p /app/logs/archive
 # -XX:+PerfDisableSharedMem         Disable JMX perf shared memory overhead
 # -Daeron.*                         Aeron MediaDriver low-latency config
 # -Dagrona.*                        Disable UnsafeBuffer bounds checks (prod only)
+# --add-exports                     Required by newer Agrona/Artio for Unsafe access
 # --add-opens                       Required by Agrona/Aeron for NIO internal access
 ENV JAVA_OPTS="\
   -XX:+UseZGC \
@@ -50,6 +51,7 @@ ENV JAVA_OPTS="\
   -Daeron.sender.idle.strategy=noop \
   -Daeron.receiver.idle.strategy=noop \
   -Dagrona.disable.bounds.checks=true \
+  --add-exports java.base/jdk.internal.misc=ALL-UNNAMED \
   --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
   --add-opens java.base/java.nio=ALL-UNNAMED \
   --add-opens java.base/java.lang=ALL-UNNAMED"

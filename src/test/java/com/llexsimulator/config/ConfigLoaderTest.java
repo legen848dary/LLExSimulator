@@ -54,6 +54,7 @@ class ConfigLoaderTest {
                 tempDir.resolve("missing-local.properties"));
 
         assertEquals(9880, config.fixPort());
+        assertEquals(false, config.fixRawMessageLoggingEnabled());
         assertEquals("BUSY_SPIN", config.waitStrategy());
         assertEquals("aeron:ipc?term-length=8388608", config.artioLibraryAeronChannel());
         assertEquals("aeron:ipc?term-length=65536", config.metricsAeronChannel());

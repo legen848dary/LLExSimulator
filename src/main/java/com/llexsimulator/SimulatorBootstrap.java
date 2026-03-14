@@ -9,6 +9,7 @@ import com.llexsimulator.config.SimulatorConfig;
 import com.llexsimulator.disruptor.DisruptorPipeline;
 import com.llexsimulator.disruptor.handler.*;
 import com.llexsimulator.engine.FixEngineManager;
+import com.llexsimulator.engine.FixOutboundSender;
 import com.llexsimulator.engine.FixSessionApplication;
 import com.llexsimulator.engine.OrderSessionRegistry;
 import com.llexsimulator.fill.FillProfileManager;
@@ -74,10 +75,11 @@ public final class SimulatorBootstrap {
 
         // 6 — Disruptor pipeline
         OrderSessionRegistry sessionRegistry = new OrderSessionRegistry();
+        FixOutboundSender outboundSender = new FixOutboundSender();
 
         ValidationHandler     validationHandler     = new ValidationHandler();
         FillStrategyHandler   fillStrategyHandler   = new FillStrategyHandler(profileManager, orderRepository);
-        ExecutionReportHandler execReportHandler    = new ExecutionReportHandler(sessionRegistry, orderRepository);
+        ExecutionReportHandler execReportHandler    = new ExecutionReportHandler(sessionRegistry, orderRepository, outboundSender);
         MetricsPublishHandler  metricsPublishHandler = new MetricsPublishHandler(
                 metricsRegistry, metricsPublisher, config.metricsPublishInterval());
 
@@ -101,7 +103,7 @@ public final class SimulatorBootstrap {
 
         // 9 — FIX engine (last — everything must be ready before accepting connections)
         FixSessionApplication fixApp = new FixSessionApplication(sessionRegistry, disruptorPipeline);
-        fixEngineManager = new FixEngineManager(fixApp, config);
+        fixEngineManager = new FixEngineManager(fixApp, config, outboundSender);
         fixEngineManager.start();
 
         log.info("=== LLExSimulator ready — FIX port {} | Web port {} ===",
