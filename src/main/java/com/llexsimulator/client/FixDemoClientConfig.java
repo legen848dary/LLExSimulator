@@ -44,7 +44,7 @@ public record FixDemoClientConfig(
                 positiveDouble(System.getProperty("fix.demo.orderQty", "100"), "fix.demo.orderQty"),
                 positiveDouble(System.getProperty("fix.demo.price", "100.25"), "fix.demo.price"),
                 stringProp("fix.demo.logDir", "logs/fix-demo-client/quickfixj"),
-                Boolean.parseBoolean(System.getProperty("fix.demo.rawLoggingEnabled", "false"))
+                Boolean.parseBoolean(System.getProperty("fix.demo.rawLoggingEnabled", "true"))
         );
     }
 

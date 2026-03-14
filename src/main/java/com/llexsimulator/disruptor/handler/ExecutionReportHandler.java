@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import uk.co.real_logic.artio.Pressure;
 import uk.co.real_logic.artio.builder.ExecutionReportEncoder;
 import uk.co.real_logic.artio.fields.UtcTimestampEncoder;
+import uk.co.real_logic.artio.session.Session;
 
 import java.util.concurrent.locks.LockSupport;
 
@@ -144,7 +145,7 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
                           boolean terminalAction) {
         OrderState state = orderRepository.get(corrId);
         FixConnection connection = sessionRegistry.get(sessionId);
-        if (connection == null || connection.writer() == null) {
+        if (connection == null || connection.session() == null) {
             log.warn("No session for connId={} (correlationId={})", sessionId, corrId);
             orderRepository.release(corrId);
             return;
@@ -181,7 +182,7 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
                             long orderQty, long price,
                             com.llexsimulator.sbe.RejectReason reason) {
         FixConnection connection = sessionRegistry.get(sessionId);
-        if (connection == null || connection.writer() == null) {
+        if (connection == null || connection.session() == null) {
             log.warn("No session for reject connId={} (correlationId={})", sessionId, corrId);
             orderRepository.release(corrId);
             return;
@@ -207,7 +208,7 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
                             com.llexsimulator.sbe.OrderSide side,
                             long orderQty, long price, long cumQty) {
         FixConnection connection = sessionRegistry.get(sessionId);
-        if (connection == null || connection.writer() == null) {
+        if (connection == null || connection.session() == null) {
             log.warn("No session for cancel connId={} (correlationId={})", sessionId, corrId);
             orderRepository.release(corrId);
             return;
@@ -272,29 +273,28 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
         report.transactTime(timestampEncoder.buffer(), timestampLength);
 
         synchronized (connection) {
-            int claimedMsgSeqNum = connection.claimNextOutboundMsgSeqNum();
-            if (connection.session() != null) {
-                connection.session().prepare(report.header());
+            Session session = connection.session();
+            if (session == null || !session.isActive()) {
+                log.warn("Cannot send ExecutionReport on inactive session={} state sessionPresent={}",
+                        connection.sessionKey(), session != null);
+                return;
             }
-            report.header().msgSeqNum(claimedMsgSeqNum);
 
             long result = 0L;
             for (int attempt = 0; attempt < 3; attempt++) {
-                result = connection.writer().send(report, claimedMsgSeqNum);
+                result = session.trySend(report);
                 if (!Pressure.isBackPressured(result) && result >= 0L) {
                     return;
                 }
                 Thread.onSpinWait();
             }
 
-            connection.rollbackOutboundMsgSeqNum(claimedMsgSeqNum);
-
             if (Pressure.isBackPressured(result)) {
-                log.warn("Back pressured while sending ExecutionReport: session={} result={} msgSeqNum={}",
-                        connection.sessionKey(), result, claimedMsgSeqNum);
+                log.warn("Back pressured while sending ExecutionReport: session={} result={}",
+                        connection.sessionKey(), result);
             } else {
-                log.warn("Failed to send ExecutionReport: session={} result={} msgSeqNum={}",
-                        connection.sessionKey(), result, claimedMsgSeqNum);
+                log.warn("Failed to send ExecutionReport: session={} result={}",
+                        connection.sessionKey(), result);
             }
         }
     }

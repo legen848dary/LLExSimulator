@@ -60,7 +60,7 @@ public final class SimulatorBootstrap {
                 config.aeronDir(), config.artioLibraryAeronChannel(), config.metricsAeronChannel());
 
         // 2 — Aeron
-        aeronContext   = new AeronContext(config.aeronDir());
+        aeronContext   = new AeronContext(config.aeronDir(), config.fixRawMessageLoggingEnabled());
         metricsPublisher = new MetricsPublisher(aeronContext, config.metricsAeronChannel());
 
         // 3 — Metrics

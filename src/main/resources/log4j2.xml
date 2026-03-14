@@ -63,17 +63,35 @@
   <Loggers>
 
     <!-- ── Third-party noise suppression ──────────────────────────────────── -->
-    <Logger name="quickfixj"     level="WARN" additivity="false">
+    <Logger name="quickfix"      level="DEBUG" additivity="false">
       <AppenderRef ref="FILE"/>
+      <AppenderRef ref="CONSOLE" level="INFO"/>
     </Logger>
-    <Logger name="org.quickfixj" level="WARN" additivity="false">
+    <Logger name="quickfixj"     level="DEBUG" additivity="false">
       <AppenderRef ref="FILE"/>
+      <AppenderRef ref="CONSOLE" level="INFO"/>
     </Logger>
-    <Logger name="io.aeron"      level="WARN" additivity="false">
+    <Logger name="org.quickfixj" level="DEBUG" additivity="false">
       <AppenderRef ref="FILE"/>
+      <AppenderRef ref="CONSOLE" level="INFO"/>
     </Logger>
-    <Logger name="org.agrona"    level="WARN" additivity="false">
+    <Logger name="io.aeron"      level="INFO" additivity="false">
       <AppenderRef ref="FILE"/>
+      <AppenderRef ref="CONSOLE" level="WARN"/>
+    </Logger>
+    <Logger name="org.agrona"    level="INFO" additivity="false">
+      <AppenderRef ref="FILE"/>
+      <AppenderRef ref="CONSOLE" level="WARN"/>
+    </Logger>
+
+    <!--
+      Artio FIX engine — DEBUG to file so we can see exactly what triggers
+      the session LOGOUT (sequence-number events, slow-consumer, term-roll, etc.).
+      CONSOLE is WARN-only to avoid flooding stdout.
+    -->
+    <Logger name="uk.co.real_logic.artio" level="DEBUG" additivity="false">
+      <AppenderRef ref="FILE"/>
+      <AppenderRef ref="CONSOLE" level="WARN"/>
     </Logger>
 
     <!--
@@ -81,18 +99,15 @@
       blocked by I/O.  Both CONSOLE and FILE are included so that CONNECT,
       DISCONNECT, and PROGRESS events appear on the terminal in real time.
     -->
-    <AsyncLogger name="com.llexsimulator.client" level="INFO" additivity="false">
+    <AsyncLogger name="com.llexsimulator.client" level="DEBUG" additivity="false">
       <AppenderRef ref="CONSOLE"/>
       <AppenderRef ref="FILE"/>
     </AsyncLogger>
 
     <!--
-      Main simulator code — async, CONSOLE + FILE.
-      CONSOLE ensures all application logs appear on stdout so that
-      'docker logs' / 'llexsim.sh logs' work without tailing a file.
-      FILE provides the persistent rolling log on the host bind-mount.
+      Main simulator code — DEBUG to both appenders during investigation.
     -->
-    <AsyncLogger name="com.llexsimulator" level="INFO" additivity="false">
+    <AsyncLogger name="com.llexsimulator" level="DEBUG" additivity="false">
       <AppenderRef ref="CONSOLE"/>
       <AppenderRef ref="FILE"/>
     </AsyncLogger>

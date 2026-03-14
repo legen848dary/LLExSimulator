@@ -52,6 +52,10 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
     private static final Marker CONNECT    = MarkerFactory.getMarker("CONNECT");
     private static final Marker DISCONNECT = MarkerFactory.getMarker("DISCONNECT");
     private static final Marker PROGRESS   = MarkerFactory.getMarker("PROGRESS");
+    private static final Marker ADMIN_OUT  = MarkerFactory.getMarker("FIX_ADMIN_OUT");
+    private static final Marker ADMIN_IN   = MarkerFactory.getMarker("FIX_ADMIN_IN");
+    private static final Marker APP_OUT    = MarkerFactory.getMarker("FIX_APP_OUT");
+    private static final Marker APP_IN     = MarkerFactory.getMarker("FIX_APP_IN");
 
     /** Pool of symbols chosen randomly per order — pre-allocated, zero GC on hot path. */
     private static final String[] SYMBOLS = {
@@ -159,23 +163,28 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
 
     @Override
     public void toAdmin(Message message, SessionID sessionId) {
-        // no-op
+        log.debug(ADMIN_OUT, "toAdmin session={} msgType={} raw={}",
+                sessionId, messageType(message), printable(message));
     }
 
     @Override
     public void fromAdmin(Message message, SessionID sessionId) {
-        // no-op
+        log.debug(ADMIN_IN, "fromAdmin session={} msgType={} raw={}",
+                sessionId, messageType(message), printable(message));
     }
 
     @Override
     public void toApp(Message message, SessionID sessionId) throws DoNotSend {
-        // outbound application messages are counted on send success instead
+        log.debug(APP_OUT, "toApp session={} msgType={} raw={}",
+                sessionId, messageType(message), printable(message));
     }
 
     @Override
     public void fromApp(Message message, SessionID sessionId)
             throws FieldNotFound, IncorrectDataFormat, IncorrectTagValue, UnsupportedMessageType {
         String msgType = message.getHeader().getString(MsgType.FIELD);
+        log.debug(APP_IN, "fromApp session={} msgType={} raw={}",
+                sessionId, msgType, printable(message));
         switch (msgType) {
             case MsgType.EXECUTION_REPORT -> execReportCount.incrementAndGet();
             case MsgType.REJECT, MsgType.BUSINESS_MESSAGE_REJECT -> rejectCount.incrementAndGet();
@@ -260,6 +269,18 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
 
     private static String sideName(char side) {
         return side == Side.SELL ? "SELL" : "BUY";
+    }
+
+    private static String messageType(Message message) {
+        try {
+            return message.getHeader().getString(MsgType.FIELD);
+        } catch (FieldNotFound e) {
+            return "UNKNOWN";
+        }
+    }
+
+    private static String printable(Message message) {
+        return message.toString().replace('\u0001', '|');
     }
 
     @Override

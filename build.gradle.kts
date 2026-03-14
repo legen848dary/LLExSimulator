@@ -54,6 +54,7 @@ dependencies {
     // ── Aeron IPC transport (metrics pipeline) ─────────────────────────────────
     implementation("io.aeron:aeron-driver:1.45.0")
     implementation("io.aeron:aeron-client:1.45.0")
+    implementation("io.aeron:aeron-archive:1.45.0")
 
     // ── Agrona — off-heap data structures ──────────────────────────────────────
     implementation("org.agrona:agrona:$agronaVersion")

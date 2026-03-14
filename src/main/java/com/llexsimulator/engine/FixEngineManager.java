@@ -24,6 +24,9 @@ public final class FixEngineManager {
 
     private static final Logger log = LoggerFactory.getLogger(FixEngineManager.class);
     private static final int POLL_FRAGMENT_LIMIT = 10;
+    private static final String ARCHIVE_CONTROL_REQUEST_CHANNEL = "aeron:ipc?term-length=65536";
+    private static final String ARCHIVE_CONTROL_RESPONSE_CHANNEL = "aeron:ipc?term-length=65536";
+    private static final String ARCHIVE_RECORDING_EVENTS_CHANNEL = "aeron:ipc?term-length=65536";
 
     private final FixSessionApplication app;
     private final SimulatorConfig config;
@@ -60,6 +63,11 @@ public final class FixEngineManager {
                 .printStartupWarnings(true)
                 .printErrorMessages(true);
         engineConfiguration.aeronContext().aeronDirectoryName(config.aeronDir());
+        engineConfiguration.aeronArchiveContext()
+                .aeronDirectoryName(config.aeronDir())
+                .controlRequestChannel(ARCHIVE_CONTROL_REQUEST_CHANNEL)
+                .controlResponseChannel(ARCHIVE_CONTROL_RESPONSE_CHANNEL)
+                .recordingEventsChannel(ARCHIVE_RECORDING_EVENTS_CHANNEL);
 
         LibraryConfiguration libraryConfiguration = new LibraryConfiguration()
                 .sessionAcquireHandler(app)

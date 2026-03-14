@@ -3,12 +3,12 @@ package com.llexsimulator.e2e;
 import com.llexsimulator.SimulatorBootstrap;
 import com.llexsimulator.client.FixDemoClientApplication;
 import com.llexsimulator.client.FixDemoClientConfig;
-import com.llexsimulator.client.NoOpQuickFixLogFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import quickfix.DefaultMessageFactory;
+import quickfix.FileLogFactory;
 import quickfix.LogFactory;
 import quickfix.MemoryStoreFactory;
 import quickfix.MessageFactory;
@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DemoClientEndToEndTest {
 
     private static final Duration LOGON_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration SOAK_DURATION = Duration.ofSeconds(10);
+    private static final Duration SOAK_DURATION = Duration.ofSeconds(60);
 
     @TempDir
     Path tempDir;
@@ -57,12 +57,13 @@ class DemoClientEndToEndTest {
         clearProperty("fix.demo.port");
         clearProperty("fix.demo.logDir");
         clearProperty("fix.demo.rawLoggingEnabled");
+        clearProperty("fix.raw.message.logging.enabled");
         clearProperty("fix.demo.rate");
     }
 
     @Test
-    @Timeout(60)
-    void demoClientStaysLoggedOnAndReceivesExecutionReportsForTenSeconds() throws Exception {
+    @Timeout(90)
+    void demoClientStaysLoggedOnAndReceivesExecutionReportsForSixtySeconds() throws Exception {
         int fixPort = findFreePort();
         int webPort = findFreePort();
         Path clientLogDir = tempDir.resolve("quickfixj-client");
@@ -72,7 +73,8 @@ class DemoClientEndToEndTest {
         System.setProperty("web.port", Integer.toString(webPort));
         System.setProperty("fix.demo.port", Integer.toString(fixPort));
         System.setProperty("fix.demo.logDir", clientLogDir.toString());
-        System.setProperty("fix.demo.rawLoggingEnabled", "false");
+        System.setProperty("fix.demo.rawLoggingEnabled", "true");
+        System.setProperty("fix.raw.message.logging.enabled", "true");
         System.setProperty("fix.demo.rate", "100");
 
         bootstrap = new SimulatorBootstrap();
@@ -85,7 +87,7 @@ class DemoClientEndToEndTest {
         app = new FixDemoClientApplication(config);
         SessionSettings settings = config.toSessionSettings();
         MessageStoreFactory storeFactory = new MemoryStoreFactory();
-        LogFactory logFactory = new NoOpQuickFixLogFactory();
+        LogFactory logFactory = new FileLogFactory(settings);
         MessageFactory messageFactory = new DefaultMessageFactory();
         initiator = new SocketInitiator(app, storeFactory, settings, logFactory, messageFactory);
 
@@ -101,7 +103,7 @@ class DemoClientEndToEndTest {
             Thread.sleep(250L);
         }
 
-        assertTrue(app.sentCount() >= 500, "Expected at least 500 orders to be sent during the 10 second soak run");
+        assertTrue(app.sentCount() >= 5_000, "Expected at least 5,000 orders to be sent during the 60 second soak run");
         assertTrue(app.execReportCount() > 0, "Expected execution reports from the simulator during the soak run");
         assertEquals(0L, app.rejectCount(), "Did not expect business rejects during the happy-path soak run");
         assertEquals(0L, app.sendFailureCount(), "Did not expect send failures during the soak run");
