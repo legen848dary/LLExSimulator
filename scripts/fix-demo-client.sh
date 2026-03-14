@@ -59,9 +59,15 @@ client_running() {
 }
 
 ensure_jar() {
-    # Delegate entirely to Gradle — it knows exactly which inputs changed.
-    # When nothing has changed this takes ~1-2 s (Gradle config only, no recompile).
-    info "Verifying JAR is up-to-date (Gradle incremental build)..."
+    # 'llexsim.sh build' is the canonical build step that produces the fat JAR.
+    # If it already exists, trust it and start immediately — no Gradle invocation.
+    # Only fall back to building when the JAR is genuinely absent (e.g. after a
+    # fresh clone or 'llexsim.sh purge' before 'llexsim.sh build' was run).
+    if [[ -f "${JAR_PATH}" ]]; then
+        return 0
+    fi
+    warn "JAR not found at ${JAR_PATH}"
+    info "Building fat JAR with Gradle (run 'llexsim.sh build' to avoid this)..."
     (cd "${PROJECT_ROOT}" && ./gradlew --no-daemon -q shadowJar -x test)
 }
 
@@ -140,7 +146,7 @@ cmd_start() {
     fi
 
     info "Starting demo client in background at ${rate} NewOrderSingles/sec..."
-    LLEXSIM_JAR_READY=1 nohup "${PROJECT_ROOT}/scripts/fix-demo-client.sh" run "${rate}" >"${CONSOLE_LOG}" 2>&1 &
+    nohup "${PROJECT_ROOT}/scripts/fix-demo-client.sh" run "${rate}" >"${CONSOLE_LOG}" 2>&1 &
     echo $! >"${PID_FILE}"
     sleep 1
 
@@ -163,11 +169,7 @@ cmd_run() {
     banner "Foreground Run"
     require_java
     ensure_dirs
-
-    # Skip rebuild when called as a subprocess of cmd_start (JAR was just verified)
-    if [[ "${LLEXSIM_JAR_READY:-0}" != "1" ]]; then
-        ensure_jar
-    fi
+    ensure_jar
 
     info "Running demo client in foreground at ${rate} NewOrderSingles/sec..."
     exec_java_cmd "${rate}"
