@@ -337,7 +337,8 @@ createApp({
     // ── WebSocket ─────────────────────────────────────────────────────────────
     let ws, reconnectTimer
     function connectWs() {
-      ws = new WebSocket(`ws://${location.host}/ws`)
+      const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws'
+      ws = new WebSocket(`${wsScheme}://${location.host}/ws`)
       ws.onopen  = () => { wsConnected.value = true; clearTimeout(reconnectTimer) }
       ws.onclose = () => { wsConnected.value = false; reconnectTimer = setTimeout(connectWs, 2000) }
       ws.onerror = () => ws.close()
