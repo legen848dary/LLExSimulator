@@ -40,6 +40,14 @@ error()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
 banner()  { echo -e "\n${BOLD}${CYAN}══════════════════════════════════════════${RESET}"; echo -e "${BOLD}  LLExSimulator — $*${RESET}"; echo -e "${BOLD}${CYAN}══════════════════════════════════════════${RESET}\n"; }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+require_java() {
+    if ! command -v java &>/dev/null; then
+        error "Java (JDK 21+) is not installed or not in PATH."
+        error "Install via: brew install --cask temurin@21"
+        exit 1
+    fi
+}
+
 require_docker() {
     if ! command -v docker &>/dev/null; then
         error "Docker is not installed or not in PATH."
@@ -102,19 +110,35 @@ wait_healthy() {
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 cmd_build() {
-    banner "Building Docker Image"
+    banner "Building"
+    require_java
     require_compose
     cd "${PROJECT_ROOT}"
 
+    # ── Step 1: compile + fat JAR on the host ─────────────────────────────────
+    # This produces the ONE canonical JAR used by all three consumers:
+    #   • Docker image  (copied in step 2 below)
+    #   • Local direct-java run
+    #   • Demo client   (fix-demo-client.sh)
+    # Gradle's incremental build means this is fast on subsequent runs when
+    # nothing has changed.
+    info "Compiling and packaging fat JAR (./gradlew shadowJar)..."
+    ./gradlew --no-daemon shadowJar -x test
+    success "Fat JAR ready: build/libs/LLExSimulator-1.0-SNAPSHOT.jar"
+
+    # ── Step 2: build the Docker image ────────────────────────────────────────
+    # The Dockerfile is now a lean single-stage image that only COPYs the
+    # pre-built JAR — no Gradle inside the container, no layer-cache tricks,
+    # no duplicate compilation.  Rebuilds are fast because the only thing that
+    # changes between runs is the JAR layer itself.
     if [[ "${1:-}" == "--no-cache" ]]; then
-        info "Building fat JAR and Docker image (no cache)..."
+        info "Building Docker image (no cache)..."
         docker compose --progress plain -f "${COMPOSE_FILE}" build --no-cache
     else
-        info "Building fat JAR and Docker image (cached layers enabled)..."
+        info "Building Docker image..."
         docker compose --progress plain -f "${COMPOSE_FILE}" build
     fi
-
-    success "Image built: ${IMAGE_NAME}"
+    success "Docker image built: ${IMAGE_NAME}"
     docker images "${IMAGE_NAME}" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
 }
 
@@ -218,12 +242,29 @@ cmd_status() {
 }
 
 cmd_logs() {
+    # Tails the structured log file written by Log4j2's RollingRandomAccessFile
+    # appender and bind-mounted to ./logs/ on the host.  This always works even
+    # when 'docker logs' is empty (e.g. before stdout logging was added).
+    local log_file="${PROJECT_ROOT}/logs/llexsimulator.log"
+    if [[ ! -f "${log_file}" ]]; then
+        warn "Log file not found: ${log_file}"
+        warn "The container may not have started yet, or the ./logs volume is not mounted."
+        warn "Try: ./scripts/llexsim.sh docker-logs"
+        exit 1
+    fi
+    info "Tailing ${log_file} (Ctrl+C to exit)..."
+    tail -n "${LOG_LINES}" -f "${log_file}"
+}
+
+cmd_docker_logs() {
+    # Tails the raw Docker stdout/stderr stream (captured from the container's
+    # console appender).  Useful during startup before the file is written.
     require_docker
     if ! container_exists; then
         error "Container '${CONTAINER_NAME}' not found. Start with: ./scripts/llexsim.sh start"
         exit 1
     fi
-    info "Showing last ${LOG_LINES} lines (Ctrl+C to stop following)..."
+    info "Showing last ${LOG_LINES} lines from Docker stdout (Ctrl+C to exit)..."
     docker logs "${CONTAINER_NAME}" --tail "${LOG_LINES}" -f
 }
 
@@ -256,6 +297,15 @@ cmd_purge() {
     rm -rf "${PROJECT_ROOT}/build" 2>/dev/null || true
 
     success "Purge complete. Run 'build' to rebuild from source."
+}
+
+cmd_rebuild() {
+    # Convenience alias: purge → build → start in one shot.
+    # Accepts the same optional flags as 'build' (e.g. --no-cache).
+    banner "Rebuilding LLExSimulator from Scratch"
+    cmd_purge
+    cmd_build "$@"
+    cmd_start
 }
 
 cmd_fix_connect() {
@@ -291,12 +341,14 @@ ${BOLD}Usage:${RESET}
   ./scripts/llexsim.sh <command> [options]
 
 ${BOLD}Commands:${RESET}
-  ${GREEN}build${RESET}        Build the Docker image from source (Gradle + Docker)
+  ${GREEN}build${RESET}        Build Docker image + host-side fat JAR (Gradle + Docker)
+  ${GREEN}rebuild${RESET}      Full purge, then build and start (clean slate)
   ${GREEN}start${RESET}        Start the simulator (auto-builds if image missing)
   ${GREEN}stop${RESET}         Gracefully stop the running container
   ${GREEN}restart${RESET}      Stop then start (rolling restart)
   ${GREEN}status${RESET}       Show container status, health, and resource usage
-  ${GREEN}logs${RESET}         Tail container logs in real-time (Ctrl+C to exit)
+  ${GREEN}logs${RESET}         Tail the host-side log file (./logs/llexsimulator.log)
+  ${GREEN}docker-logs${RESET}  Tail raw Docker stdout stream (docker logs)
   ${GREEN}clean${RESET}        Remove containers + volumes; keep built image
   ${GREEN}purge${RESET}        Full clean: removes containers, volumes, image, build dir
   ${GREEN}fix-connect${RESET}  Test FIX port connectivity with nc
@@ -312,6 +364,10 @@ ${BOLD}Examples:${RESET}
   ./scripts/llexsim.sh build
   ./scripts/llexsim.sh build --no-cache
   ./scripts/llexsim.sh start
+
+  # Full clean rebuild from scratch (purge + build + start)
+  ./scripts/llexsim.sh rebuild
+  ./scripts/llexsim.sh rebuild --no-cache
 
   # Daily use
   ./scripts/llexsim.sh status
@@ -343,11 +399,13 @@ shift || true
 
 case "${COMMAND}" in
     build)       cmd_build "$@"       ;;
+    rebuild)     cmd_rebuild "$@"     ;;
     start)       cmd_start "$@"       ;;
     stop)        cmd_stop "$@"        ;;
     restart)     cmd_restart "$@"     ;;
     status)      cmd_status "$@"      ;;
     logs)        cmd_logs "$@"        ;;
+    docker-logs) cmd_docker_logs "$@" ;;
     clean)       cmd_clean "$@"       ;;
     purge)       cmd_purge "$@"       ;;
     fix-connect) cmd_fix_connect "$@" ;;

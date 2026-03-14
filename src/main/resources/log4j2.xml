@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Log4j2 configuration for LLExSimulator.
+
+  Low-latency strategy
+  ────────────────────
+  • AsyncLoggerContextSelector (set via -Dlog4j2.contextSelector JVM arg in the
+    launch scripts) makes EVERY logger fully asynchronous: log calls enqueue a
+    pre-formatted event onto the LMAX Disruptor ring buffer and return
+    immediately, decoupling the calling thread from all I/O.
+  • RollingRandomAccessFile uses a memory-mapped write path (no intermediate
+    byte[] copy) — significantly lower latency than the standard rolling appender.
+  • immediateFlush="false" batches OS write() calls; the Disruptor background
+    thread handles flushing.
+  • The demo-client logger additionally writes to CONSOLE so that connect /
+    disconnect / progress events are visible on the terminal without tailing a
+    file.
+-->
+<Configuration status="WARN" name="LLExSimulator" monitorInterval="60">
+
+  <Properties>
+    <!-- Override via -Dllexsim.log.dir and -Dllexsim.log.name JVM args -->
+    <Property name="LOG_DIR">${sys:llexsim.log.dir:-logs}</Property>
+    <Property name="LOG_NAME">${sys:llexsim.log.name:-llexsimulator}</Property>
+    <Property name="FILE_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
+    <Property name="CONSOLE_PATTERN">%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
+  </Properties>
+
+  <Appenders>
+
+    <!--
+      Console appender — used only by the demo-client logger so that
+      CONNECT / DISCONNECT / PROGRESS events print to stdout without
+      any extra tooling.
+    -->
+    <Console name="CONSOLE" target="SYSTEM_OUT">
+      <PatternLayout pattern="${CONSOLE_PATTERN}"/>
+    </Console>
+
+    <!--
+      RollingRandomAccessFile — memory-mapped I/O path, no intermediate copy.
+      immediateFlush="false" lets the async background thread batch flushes.
+    -->
+    <RollingRandomAccessFile
+        name="FILE"
+        fileName="${LOG_DIR}/${LOG_NAME}.log"
+        filePattern="${LOG_DIR}/archive/${LOG_NAME}.%d{yyyy-MM-dd}.%i.log.gz"
+        immediateFlush="false">
+      <PatternLayout pattern="${FILE_PATTERN}"/>
+      <Policies>
+        <TimeBasedTriggeringPolicy/>
+        <SizeBasedTriggeringPolicy size="10MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="14">
+        <Delete basePath="${LOG_DIR}/archive" maxDepth="1">
+          <IfAccumulatedFileSize exceeds="200MB"/>
+        </Delete>
+      </DefaultRolloverStrategy>
+    </RollingRandomAccessFile>
+
+  </Appenders>
+
+  <Loggers>
+
+    <!-- ── Third-party noise suppression ──────────────────────────────────── -->
+    <Logger name="quickfixj"     level="WARN" additivity="false">
+      <AppenderRef ref="FILE"/>
+    </Logger>
+    <Logger name="org.quickfixj" level="WARN" additivity="false">
+      <AppenderRef ref="FILE"/>
+    </Logger>
+    <Logger name="io.aeron"      level="WARN" additivity="false">
+      <AppenderRef ref="FILE"/>
+    </Logger>
+    <Logger name="org.agrona"    level="WARN" additivity="false">
+      <AppenderRef ref="FILE"/>
+    </Logger>
+
+    <!--
+      Demo FIX client — AsyncLogger so the hot order-sender thread is never
+      blocked by I/O.  Both CONSOLE and FILE are included so that CONNECT,
+      DISCONNECT, and PROGRESS events appear on the terminal in real time.
+    -->
+    <AsyncLogger name="com.llexsimulator.client" level="INFO" additivity="false">
+      <AppenderRef ref="CONSOLE"/>
+      <AppenderRef ref="FILE"/>
+    </AsyncLogger>
+
+    <!--
+      Main simulator code — async, CONSOLE + FILE.
+      CONSOLE ensures all application logs appear on stdout so that
+      'docker logs' / 'llexsim.sh logs' work without tailing a file.
+      FILE provides the persistent rolling log on the host bind-mount.
+    -->
+    <AsyncLogger name="com.llexsimulator" level="INFO" additivity="false">
+      <AppenderRef ref="CONSOLE"/>
+      <AppenderRef ref="FILE"/>
+    </AsyncLogger>
+
+    <!-- Catch-all async root -->
+    <AsyncRoot level="WARN">
+      <AppenderRef ref="CONSOLE"/>
+      <AppenderRef ref="FILE"/>
+    </AsyncRoot>
+
+  </Loggers>
+
+</Configuration>
+

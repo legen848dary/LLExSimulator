@@ -2,6 +2,8 @@ package com.llexsimulator.client;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.Marker;
+import org.slf4j.MarkerFactory;
 import quickfix.Application;
 import quickfix.DoNotSend;
 import quickfix.FieldNotFound;
@@ -43,6 +45,13 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class FixDemoClientApplication implements Application, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(FixDemoClientApplication.class);
+
+    // Markers — used for semantic tagging of key lifecycle events.
+    // They appear in the log pattern as "%marker" and can be used
+    // by log4j2 MarkerFilter to route/suppress specific event types.
+    private static final Marker CONNECT    = MarkerFactory.getMarker("CONNECT");
+    private static final Marker DISCONNECT = MarkerFactory.getMarker("DISCONNECT");
+    private static final Marker PROGRESS   = MarkerFactory.getMarker("PROGRESS");
 
     /** Pool of symbols chosen randomly per order — pre-allocated, zero GC on hot path. */
     private static final String[] SYMBOLS = {
@@ -103,7 +112,8 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
         loggedOn.set(true);
         logonCount.incrementAndGet();
         firstLogonLatch.countDown();
-        log.info("FIX logon: session={} — order flow active at {} msg/s", sessionId, config.ratePerSecond());
+        log.info(CONNECT, "*** CONNECTED *** session={} rate={} msg/s (logons={})",
+                sessionId, config.ratePerSecond(), logonCount.get());
     }
 
     @Override
@@ -111,7 +121,8 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
         loggedOn.set(false);
         activeSessionId.compareAndSet(sessionId, null);
         logoutCount.incrementAndGet();
-        log.info("FIX logout: session={} — order flow paused until reconnection", sessionId);
+        log.info(DISCONNECT, "*** DISCONNECTED *** session={} sent={} execReports={} sendFailures={} (logouts={})",
+                sessionId, sentCount.get(), execReportCount.get(), sendFailureCount.get(), logoutCount.get());
     }
 
     public boolean awaitFirstLogon(Duration timeout) throws InterruptedException {
@@ -194,7 +205,7 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
             }
             long total = sentCount.incrementAndGet();
             if (total == 1 || total % Math.max(1_000L, config.ratePerSecond() * 10L) == 0L) {
-                log.info("Orders sent={} latestClOrdId={} session={}", total, clOrdId, sessionId);
+                log.debug("Orders sent={} latestClOrdId={} session={}", total, clOrdId, sessionId);
             }
         } catch (SessionNotFound e) {
             sendFailureCount.incrementAndGet();
@@ -238,7 +249,8 @@ public final class FixDemoClientApplication implements Application, AutoCloseabl
         lastExecReportSnapshot = execReports;
         lastRejectSnapshot = rejects;
 
-        log.info("Progress: loggedOn={} session={} sent={} (+{}/5s) execReports={} (+{}/5s) rejects={} (+{}/5s) sendFailures={}",
+        log.info(PROGRESS,
+                "--- PROGRESS --- loggedOn={} session={} | sent={} (+{}/5s) | execReports={} (+{}/5s) | rejects={} (+{}/5s) | sendFailures={}",
                 loggedOn.get(), activeSessionId.get(),
                 sent, sentDelta,
                 execReports, execDelta,

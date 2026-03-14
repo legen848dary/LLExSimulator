@@ -76,9 +76,14 @@ dependencies {
     // ── JSON serialization (used in REST/WebSocket layer only) ─────────────────
     implementation("com.fasterxml.jackson.core:jackson-databind:2.17.0")
 
-    // ── Logging (AsyncAppender, immediateFlush=false) ──────────────────────────
-    implementation("org.slf4j:slf4j-api:2.0.13")
-    implementation("ch.qos.logback:logback-classic:1.5.6")
+    // ── Logging — SLF4J 2 + Log4j2 fully-async (LMAX Disruptor ring buffer) ───
+    // log4j-slf4j2-impl bridges SLF4J 2.x calls to Log4j2.
+    // LMAX Disruptor (already on classpath) is picked up automatically by Log4j2
+    // when AsyncLoggerContextSelector is active, giving lock-free logging on
+    // the hot path with near-zero allocation.
+    implementation("org.slf4j:slf4j-api:2.0.16")
+    implementation("org.apache.logging.log4j:log4j-core:2.24.3")
+    implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.24.3")
 
     // ── Testing ────────────────────────────────────────────────────────────────
     testImplementation(platform("org.junit:junit-bom:5.10.3"))

@@ -11,6 +11,17 @@ services:
     volumes:
       - ./config:/app/config:ro             # override simulator.properties without rebuild
       - ./logs:/app/logs                    # persist logs on host — survives container restarts/removal
+    # tmpfs for Artio's SequenceNumberIndexWriter state files.
+    # Artio calls writableFile.force() (msync) every ~term-length of FIX messages
+    # (~24 k msgs at term-length=8 MB / ~350 bytes per msg).  On Docker Desktop /
+    # macOS the container's /tmp is backed by the VM virtual disk; even a single
+    # msync can block the Artio engine thread for several seconds, long enough for
+    # the QuickFIX/J client's HeartBtInt+1 timer to fire → REMOTE_DISCONNECT.
+    # A tmpfs mount makes msync() a no-op (no disk I/O at all).  The state files
+    # only need to exist for the lifetime of a single container run because we use
+    # SessionPersistenceStrategy.alwaysTransient().
+    tmpfs:
+      - /tmp/artio-state:size=64m,mode=1777
     environment:
       JAVA_OPTS: >-
         -XX:+UseZGC

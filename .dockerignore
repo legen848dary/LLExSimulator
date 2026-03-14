@@ -1,0 +1,44 @@
+# =============================================================================
+# .dockerignore — LLExSimulator
+# =============================================================================
+# The Dockerfile is a lean single-stage image.  It needs exactly two things
+# from the build context:
+#   1. build/libs/LLExSimulator-1.0-SNAPSHOT.jar  (pre-built by llexsim.sh build)
+#   2. src/main/resources/simulator.properties    (classpath-default config)
+#
+# Everything else is excluded to keep the context small and the docker build fast.
+# =============================================================================
+
+# ── Version control / tooling ─────────────────────────────────────────────────
+.git
+.gradle
+.idea
+*.iml
+
+# ── Gradle build manifests & wrapper (not needed inside Docker anymore) ───────
+gradle
+gradlew
+gradlew.bat
+build.gradle.kts
+settings.gradle.kts
+
+# ── Source — only src/main/resources/ is needed; exclude the rest ────────────
+src/main/java
+src/test
+
+# ── All build outputs EXCEPT the fat JAR ─────────────────────────────────────
+build/classes
+build/generated
+build/reports
+build/resources
+build/tmp
+
+# ── Runtime / ops artefacts ───────────────────────────────────────────────────
+logs
+scripts
+config
+docker-compose.yml
+
+# ── Docs ─────────────────────────────────────────────────────────────────────
+*.md
+

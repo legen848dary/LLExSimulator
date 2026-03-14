@@ -78,6 +78,8 @@ java_cmd() {
     local rate="$1"
     java \
       ${FIX_DEMO_JAVA_OPTS:-} \
+      -Dlog4j2.contextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector \
+      -Dlog4j2.asyncLoggerRingBufferSize=262144 \
       -Dllexsim.log.dir="${LOG_ROOT}" \
       -Dllexsim.log.name="fix-demo-client" \
       -Dfix.demo.logDir="${QFJ_LOG_DIR}" \
@@ -101,6 +103,8 @@ exec_java_cmd() {
     local rate="$1"
     exec java \
       ${FIX_DEMO_JAVA_OPTS:-} \
+      -Dlog4j2.contextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector \
+      -Dlog4j2.asyncLoggerRingBufferSize=262144 \
       -Dllexsim.log.dir="${LOG_ROOT}" \
       -Dllexsim.log.name="fix-demo-client" \
       -Dfix.demo.logDir="${QFJ_LOG_DIR}" \

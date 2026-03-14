@@ -48,7 +48,9 @@ public final class FixEngineManager {
                 .bindAtStartup(true)
                 .libraryAeronChannel(libraryAeronChannel)
                 .logFileDir(config.fixLogDir())
-                .deleteLogFileDirOnStart(false)
+                // alwaysTransient + container-local logFileDir: always start clean so stale
+                // sequence-number index files from a previous run don't get fsynced needlessly.
+                .deleteLogFileDirOnStart(true)
                 .logInboundMessages(config.fixRawMessageLoggingEnabled())
                 .logOutboundMessages(config.fixRawMessageLoggingEnabled())
                 .sessionPersistenceStrategy(SessionPersistenceStrategy.alwaysTransient())

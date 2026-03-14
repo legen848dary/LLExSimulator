@@ -1,20 +1,16 @@
-# ── Stage 1: Build ─────────────────────────────────────────────────────────────
-FROM gradle:8.7-jdk21 AS build
-WORKDIR /build
+# =============================================================================
+# LLExSimulator — Runtime image
+# =============================================================================
+# The fat JAR is compiled on the HOST by 'llexsim.sh build' (./gradlew shadowJar)
+# before this image is built.  The image only copies the pre-built artifact,
+# so there is exactly one JAR used by Docker, local runs, and the demo client.
+#
+# Build sequence enforced by llexsim.sh:
+#   1. ./gradlew shadowJar          →  build/libs/LLExSimulator-1.0-SNAPSHOT.jar
+#   2. docker compose build         →  copies that JAR into the image
+# =============================================================================
 
-# Copy dependency manifests first (Docker layer cache)
-COPY gradlew gradlew.bat settings.gradle.kts build.gradle.kts ./
-COPY gradle/ gradle/
-
-# Pre-download dependencies for better layer caching
-RUN ./gradlew --no-daemon dependencies --quiet 2>/dev/null || true
-
-# Copy full source and build fat JAR
-COPY src/ src/
-RUN ./gradlew --no-daemon shadowJar -x test
-
-# ── Stage 2: Runtime ───────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-jammy AS runtime
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
 # curl for health-check; numactl for optional CPU pinning on bare metal
@@ -22,12 +18,13 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends numactl curl && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /build/build/libs/LLExSimulator-1.0-SNAPSHOT.jar app.jar
+# Pre-built by the host Gradle invocation in llexsim.sh build
+COPY build/libs/LLExSimulator-1.0-SNAPSHOT.jar app.jar
 
-# Default config (can be overridden via volume mount)
+# Classpath-default config; overridden at runtime via ./config volume mount
 COPY src/main/resources/simulator.properties config/simulator.properties
 
-# Log directories — the ./logs bind-mount will overlay these at runtime,
+# Log directories — the ./logs bind-mount overlays these at runtime,
 # but they must exist in the image for fallback and correct permissions.
 RUN mkdir -p /app/logs/archive
 
@@ -62,4 +59,3 @@ EXPOSE 9880 8080
 
 # Note: on bare metal add: numactl --cpunodebind=0 --membind=0 before java
 CMD ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
-
