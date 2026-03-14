@@ -1,13 +1,14 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # =============================================================================
-# rebuild-and-run.sh — Full clean rebuild + demo client in one command
+# rebuild-and-run.sh — Full clean rebuild with ledger cleanup + demo client in one command
 # =============================================================================
 # Usage:
 #   ./scripts/rebuild-and-run.sh [rate-per-second]
 #
 # Steps
-#   1. llexsim.sh rebuild  — purge, Gradle build, Docker image, start container
-#   2. fix-demo-client.sh run <rate>  — foreground demo FIX client
+#   1. clean-ledgers.sh     — stop simulator/client and remove ledger/runtime state
+#   2. llexsim.sh rebuild   — purge, Gradle build, Docker image, start container
+#   3. fix-demo-client.sh run <rate>  — foreground demo FIX client
 #
 # The rate argument is passed directly to fix-demo-client.sh run.
 # Default rate: 100 msg/s (same default as fix-demo-client.sh).
@@ -16,6 +17,7 @@
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASH_BIN="/bin/bash"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
@@ -27,7 +29,19 @@ banner()  { echo -e "\n${BOLD}${CYAN}══════════════�
             echo -e "${BOLD}  $*${RESET}"; \
             echo -e "${BOLD}${CYAN}══════════════════════════════════════════${RESET}\n"; }
 
+require_script() {
+    local script_path="$1"
+    if [[ ! -f "${script_path}" ]]; then
+        error "Required script not found: ${script_path}"
+        exit 1
+    fi
+}
+
 RATE="${1:-100}"
+
+require_script "${SCRIPTS_DIR}/llexsim.sh"
+require_script "${SCRIPTS_DIR}/fix-demo-client.sh"
+require_script "${SCRIPTS_DIR}/clean-ledgers.sh"
 
 # Validate rate is a positive integer
 if ! [[ "${RATE}" =~ ^[0-9]+$ ]] || [[ "${RATE}" -le 0 ]]; then
@@ -38,14 +52,21 @@ fi
 
 banner "Rebuild + Run  (rate=${RATE} msg/s)"
 
-# ── Step 1: full clean rebuild of the simulator ───────────────────────────────
-info "Step 1/2 — rebuilding simulator (purge → build → start)..."
-"${SCRIPTS_DIR}/llexsim.sh" rebuild
-success "Simulator is up."
+# ── Step 1: clean ledger/runtime state ────────────────────────────────────────
+info "Step 1/3 — stopping services and cleaning ledgers/runtime state..."
+"${BASH_BIN}" "${SCRIPTS_DIR}/clean-ledgers.sh"
+success "Ledger/runtime state cleanup completed."
 
 echo ""
 
-# ── Step 2: run the demo FIX client in the foreground ────────────────────────
-info "Step 2/2 — starting demo FIX client at ${RATE} msg/s (foreground, Ctrl+C to stop)..."
-"${SCRIPTS_DIR}/fix-demo-client.sh" run "${RATE}"
+# ── Step 2: full clean rebuild of the simulator ───────────────────────────────
+info "Step 2/3 — rebuilding simulator (purge → build → start)..."
+"${BASH_BIN}" "${SCRIPTS_DIR}/llexsim.sh" rebuild
+success "Simulator is up with clean ledger/runtime state."
+
+echo ""
+
+# ── Step 3: run the demo FIX client in the foreground ────────────────────────
+info "Step 3/3 — starting demo FIX client at ${RATE} msg/s (foreground, Ctrl+C to stop)..."
+"${BASH_BIN}" "${SCRIPTS_DIR}/fix-demo-client.sh" run "${RATE}"
 
