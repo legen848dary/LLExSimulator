@@ -514,6 +514,14 @@ All droplet scripts support a dry-run mode so you can inspect the remote command
 ./scripts/remote_setup_https_for_hostname.sh 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --dry-run
 ```
 
+During a real `./scripts/remote_release_to_droplet.sh ...` run, the Docker image transfer step now shows a live progress bar when `pv` is installed locally:
+
+```bash
+brew install pv
+```
+
+Without `pv`, the release still works; it just streams the image without a progress bar.
+
 ---
 
 ## Demo FIX Client
@@ -656,28 +664,82 @@ The `docker-compose.yml` mounts `./config/` as a read-only volume inside the con
 
 For lower-noise latency runs, set `benchmark.mode.enabled=true` in `./config/simulator.properties` and restart the simulator. This keeps the REST/health endpoints available but disables the live Aeron/WebSocket metrics fan-out used by the GUI.
 
-Convenience benchmark runners are also available:
+### Benchmark Runs
+
+Use the benchmark runners instead of toggling `benchmark.mode.enabled` manually. They enable benchmark mode temporarily, run the demo client at the requested rate, capture logs/statistics, generate a colorful HTML report, and then restore the original config/state.
+
+#### Local benchmark run
 
 ```bash
+./scripts/run_benchmark_local.sh
 ./scripts/run_benchmark_local.sh 500 30
 ./scripts/run_benchmark_local.sh --build --rate 1000 --duration 60
-
-# Run on the droplet after deployment (from /opt/llexsimulator)
-./scripts/run_benchmark_droplet.sh 500 30
+./scripts/run_benchmark_local.sh --rate 2000 --duration 120
 ```
 
-Each benchmark run now saves a timestamped artifact bundle under `logs/benchmark-reports/<timestamp>/` including:
+Defaults:
+
+```text
+rate     = 500 msg/s
+duration = 30 s
+```
+
+#### Droplet benchmark run
+
+SSH into the droplet first and run the benchmark from the deployed app directory:
+
+```bash
+ssh -i ~/.ssh/<your-private-key> root@203.0.113.10
+cd /opt/llexsimulator
+
+./scripts/run_benchmark_droplet.sh
+./scripts/run_benchmark_droplet.sh 500 30
+./scripts/run_benchmark_droplet.sh --rate 1000 --duration 60
+```
+
+#### What gets captured
+
+Each benchmark run saves a timestamped artifact bundle under:
+
+```text
+logs/benchmark-reports/<timestamp>/
+```
+
+The bundle includes:
 
 - `health.json`
 - `statistics.json`
 - `docker-stats.txt`
+- `docker-compose-ps.txt`
 - simulator/client log tails
+- simulator/client Docker logs
+- `metadata.txt`
 - `report.html` — a colorful self-contained HTML summary report
 
-When the simulator web app is running, you can also browse generated reports at:
+Examples:
+
+```text
+Local:   /Users/<you>/.../LLExSimulator/logs/benchmark-reports/<timestamp>/report.html
+Droplet: /opt/llexsimulator/logs/benchmark-reports/<timestamp>/report.html
+```
+
+#### Viewing reports in the browser
+
+When the simulator web app is running, you can browse generated reports at:
 
 ```text
 http://localhost:8080/reports
+```
+
+For a droplet deployment:
+
+- if the web app is exposed publicly, open your droplet hostname/IP plus `/reports`
+- if the web app is local-only on the droplet, SSH in and use `curl http://127.0.0.1:8080/reports`, or expose it through your existing HTTPS/Nginx setup
+
+Example:
+
+```text
+https://sim.example.com/reports
 ```
 
 ---

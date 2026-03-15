@@ -534,7 +534,22 @@ stream_image_to_remote() {
         return 0
     fi
 
-    "${DOCKER_BIN}" save "${IMAGE_NAME}" | "${ssh_cmd[@]}"
+    local image_size_bytes
+    image_size_bytes="$(${DOCKER_BIN} image inspect "${IMAGE_NAME}" --format '{{.Size}}' 2>/dev/null | head -n 1)"
+
+    if command -v pv >/dev/null 2>&1; then
+        if [[ -n "${image_size_bytes}" && "${image_size_bytes}" =~ ^[0-9]+$ ]]; then
+            info "Showing transfer progress with pv (image size ≈ ${image_size_bytes} bytes)..."
+            "${DOCKER_BIN}" save "${IMAGE_NAME}" | pv -pterab -s "${image_size_bytes}" | "${ssh_cmd[@]}"
+        else
+            info "Showing transfer progress with pv..."
+            "${DOCKER_BIN}" save "${IMAGE_NAME}" | pv -pterab | "${ssh_cmd[@]}"
+        fi
+    else
+        warn "'pv' is not installed locally; streaming without a progress bar. Install it with: brew install pv"
+        "${DOCKER_BIN}" save "${IMAGE_NAME}" | "${ssh_cmd[@]}"
+    fi
+
     success "Remote image load completed."
 }
 

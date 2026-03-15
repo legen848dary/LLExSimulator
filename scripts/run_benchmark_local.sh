@@ -22,7 +22,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-parse_benchmark_args "${PASSTHROUGH_ARGS[@]}"
+if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
+    parse_benchmark_args "${PASSTHROUGH_ARGS[@]}"
+else
+    parse_benchmark_args
+fi
 
 if [[ "${BUILD_FIRST}" == true ]]; then
     info "Building the latest local Docker image before benchmarking..."
