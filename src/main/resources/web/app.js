@@ -30,12 +30,16 @@ createApp({
         <h1 class="text-lg font-semibold text-white">LLExSimulator</h1>
         <span class="text-xs text-slate-400 font-mono">FIX Exchange Simulator</span>
       </div>
-      <div class="flex items-center gap-4">
+      <div class="flex items-center gap-4 flex-wrap justify-end">
         <span :class="wsConnected ? 'text-brand-500' : 'text-red-400'" class="text-xs font-mono flex items-center gap-1">
           <span :class="wsConnected ? 'bg-brand-500' : 'bg-red-400'" class="w-2 h-2 rounded-full inline-block"></span>
-          {{ wsConnected ? 'LIVE' : 'DISCONNECTED' }}
+          {{ wsConnected ? 'WS LIVE' : 'WS RETRYING' }}
         </span>
-        <span class="text-xs text-slate-400 font-mono">FIX Sessions: {{ sessions.length }}</span>
+        <span :class="loggedOnSessionCount > 0 ? 'text-brand-500' : 'text-yellow-400'" class="text-xs font-mono flex items-center gap-1">
+          <span :class="loggedOnSessionCount > 0 ? 'bg-brand-500' : 'bg-yellow-400'" class="w-2 h-2 rounded-full inline-block"></span>
+          {{ loggedOnSessionCount > 0 ? 'FIX CONNECTED' : 'FIX IDLE' }}
+        </span>
+        <span class="text-xs text-slate-400 font-mono">FIX Sessions: {{ loggedOnSessionCount }}/{{ sessions.length }}</span>
       </div>
     </header>
 
@@ -310,6 +314,7 @@ createApp({
     let metricsRefreshTimer = null
     let pollTimer = null
     let latestMetricsSnapshot = null
+    let metricsFetchInFlight = false
 
     // ── Form state ────────────────────────────────────────────────────────────
     const form = reactive({
@@ -321,6 +326,7 @@ createApp({
 
     const behaviorTypes  = BEHAVIOR_TYPES
     const rejectReasons  = REJECT_REASONS
+    const loggedOnSessionCount = computed(() => sessions.value.filter(s => s.loggedOn).length)
 
     const showFillPct         = computed(() => ['PARTIAL_FILL','PARTIAL_THEN_CANCEL'].includes(form.behaviorType))
     const showDelay           = computed(() => form.behaviorType === 'DELAYED_FILL')
@@ -424,8 +430,12 @@ createApp({
 
     function updateMetricsRefreshInterval() {
       if (metricsRefreshTimer) clearInterval(metricsRefreshTimer)
-      metricsRefreshTimer = setInterval(() => flushLatestMetrics(), selectedRefreshSeconds.value * 1000)
-      flushLatestMetrics(true)
+      metricsRefreshTimer = setInterval(refreshMetricsDashboard, selectedRefreshSeconds.value * 1000)
+      refreshMetricsDashboard()
+    }
+
+    async function refreshMetricsDashboard() {
+      await fetchStats({ silent: true })
     }
 
     function handleOrder(o) {
@@ -453,12 +463,23 @@ createApp({
       const r = await fetch('/api/sessions')
       sessions.value = await r.json()
     }
-    async function fetchStats() {
-      const r = await fetch('/api/statistics')
-      const s = await r.json()
-      activeProfile.value = s.activeProfile || '–'
-      latestMetricsSnapshot = toMetricsSnapshot(s)
-      flushLatestMetrics(true)
+    async function fetchStats({ silent = false } = {}) {
+      if (metricsFetchInFlight) return
+      metricsFetchInFlight = true
+      try {
+        const r = await fetch('/api/statistics')
+        if (!r.ok) throw new Error(`Statistics fetch failed with status ${r.status}`)
+        const s = await r.json()
+        activeProfile.value = s.activeProfile || '–'
+        latestMetricsSnapshot = toMetricsSnapshot(s)
+        flushLatestMetrics(true)
+      } catch (e) {
+        if (!silent) {
+          console.error('Failed to fetch statistics', e)
+        }
+      } finally {
+        metricsFetchInFlight = false
+      }
     }
 
     async function resetMetrics() {
@@ -586,6 +607,7 @@ createApp({
     return {
       wsConnected, activeProfile, profiles, selectedProfile, sessions,
       orders, metrics, form, behaviorTypes, rejectReasons,
+      loggedOnSessionCount,
       showFillPct, showDelay, showReject, showRandom, showPriceImprovement,
       latencyChart, selectedRefreshSeconds, metricsRefreshOptions, isResettingMetrics,
       updateMetricsRefreshInterval, resetMetrics,
