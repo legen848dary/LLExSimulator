@@ -7,7 +7,7 @@
 #
 # What it does:
 #   1. Compiles the fat JAR locally and builds a droplet-targeted Docker image
-#   2. Syncs runtime config to the remote droplet
+#   2. Syncs runtime config and demo-client helper scripts to the remote droplet
 #   3. Streams the Docker image to the droplet over SSH via docker save/load
 #   4. Writes a deployment-specific docker-compose.yml on the droplet
 #   5. Restarts the container remotely and waits for it to become healthy
@@ -27,6 +27,11 @@ BUILD_SCRIPT="${SCRIPTS_DIR}/local_llexsim.sh"
 REMOTE_SCRIPT_RENDERER="${SCRIPTS_DIR}/remote_render_release_remote_script.py"
 LOCAL_CONFIG_DIR="${PROJECT_ROOT}/config"
 GRADLEW_BIN="${PROJECT_ROOT}/gradlew"
+LOCAL_FIX_DEMO_HELPER_FILES=(
+    "${SCRIPTS_DIR}/fix_demo_client_common.sh"
+    "${SCRIPTS_DIR}/fix_demo_client_start.sh"
+    "${SCRIPTS_DIR}/fix_demo_client_stop.sh"
+)
 
 DROPLET_HOST=""
 DROPLET_USER=""
@@ -107,14 +112,15 @@ ${BOLD}Deployment flow:${RESET}
   1. Local fat-JAR build using ./gradlew shadowJar
   2. Local Docker image build using docker buildx for ${TARGET_PLATFORM}
   3. Optional config sync to ${APP_DIR}/config/
-  4. docker save ${IMAGE_NAME} | ssh ${DROPLET_USER}@<host-or-ip> docker load
-  5. Remote compose up using ${APP_DIR}/docker-compose.yml
-  6. Wait for http://localhost:${WEB_PORT}/api/health on the droplet
+  4. Sync helper scripts to ${APP_DIR}/scripts/
+  5. docker save ${IMAGE_NAME} | ssh ${DROPLET_USER}@<host-or-ip> docker load
+  6. Remote compose up using ${APP_DIR}/docker-compose.yml
+  7. Wait for http://localhost:${WEB_PORT}/api/health on the droplet
 
 ${BOLD}Security defaults:${RESET}
   - Web/API binds to 127.0.0.1:${WEB_PORT} by default for Nginx/HTTPS fronting.
   - FIX binds to 127.0.0.1:${FIX_PORT} by default and is not internet-facing.
-  - Demo FIX client is available as an on-demand Docker Compose service (`fix-demo-client`) and is not started by default.
+  - Demo FIX client is available as an on-demand Docker Compose service ('fix-demo-client') and is not started by default.
   - CPU auto-pinning leaves one vCPU free for the host on multi-core droplets (for example, a 2 vCPU droplet pins the simulator to one core).
   - Droplet releases build a ${TARGET_PLATFORM} image by default so an Apple Silicon laptop can deploy safely to an amd64 Ubuntu host.
   - Use ${GREEN}--public-web-port${RESET} and/or ${GREEN}--public-fix-port${RESET} only if you explicitly want public exposure.
@@ -311,6 +317,11 @@ validate_inputs() {
 
     [[ -f "${REMOTE_SCRIPT_RENDERER}" ]] || { error "Remote script renderer is missing: ${REMOTE_SCRIPT_RENDERER}"; exit 1; }
 
+            local helper_file
+            for helper_file in "${LOCAL_FIX_DEMO_HELPER_FILES[@]}"; do
+                [[ -f "${helper_file}" ]] || { error "Required demo-client helper script is missing: ${helper_file}"; exit 1; }
+            done
+
     if [[ "${SYNC_CONFIG}" == true && ! -d "${LOCAL_CONFIG_DIR}" ]]; then
         error "Local config directory not found: ${LOCAL_CONFIG_DIR}"
         exit 1
@@ -398,6 +409,30 @@ sync_remote_config() {
     success "Remote config sync completed."
 }
 
+sync_remote_helper_scripts() {
+    banner "Syncing remote helper scripts"
+    info "Syncing demo-client helper scripts to $(ssh_target):${APP_DIR}/scripts/"
+
+    local rsync_shell
+    rsync_shell="$(rsync_ssh_command)"
+    local -a cmd=(
+        "${RSYNC_BIN}"
+        -az
+        --chmod=Du=rwx,Dgo=rx,Fu=rwx,Fgo=rx
+        -e "${rsync_shell}"
+        "${LOCAL_FIX_DEMO_HELPER_FILES[@]}"
+        "$(ssh_target):${APP_DIR}/scripts/"
+    )
+
+    if [[ "${DRY_RUN}" == true ]]; then
+        print_command "${cmd[@]}"
+        return 0
+    fi
+
+    "${cmd[@]}"
+    success "Remote helper script sync completed."
+}
+
 build_local_image() {
     if [[ "${SKIP_BUILD}" == true ]]; then
         banner "Skipping local rebuild"
@@ -471,7 +506,7 @@ prepare_remote_directories() {
     banner "Preparing remote directories"
     local remote_command
     remote_command=$(cat <<EOF
-mkdir -p '${APP_DIR}' '${APP_DIR}/config' '${APP_DIR}/logs' '${APP_DIR}/releases'
+mkdir -p '${APP_DIR}' '${APP_DIR}/config' '${APP_DIR}/logs' '${APP_DIR}/releases' '${APP_DIR}/scripts'
 EOF
 )
     run_ssh_command "${remote_command}"
@@ -555,6 +590,7 @@ main() {
     verify_local_image_platform
     prepare_remote_directories
     sync_remote_config
+    sync_remote_helper_scripts
     stream_image_to_remote
     deploy_remote_release
 
@@ -576,10 +612,10 @@ main() {
         echo "  SSH tunnel:   ssh -N -L ${FIX_PORT}:127.0.0.1:${FIX_PORT} ${DROPLET_USER}@${DROPLET_HOST}"
     fi
     echo ""
-    echo "Droplet demo client (on-demand Docker Compose service):"
-    echo "  Start:        ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && FIX_DEMO_RATE=100 docker compose --profile demo-client up -d fix-demo-client'"
-    echo "  Logs:         ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && docker compose logs -f fix-demo-client'"
-    echo "  Stop:         ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && docker compose stop fix-demo-client && docker compose rm -f fix-demo-client'"
+    echo "Droplet demo client scripts:"
+    echo "  Start:        ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && ./scripts/fix_demo_client_start.sh 100'"
+    echo "  Logs:         ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && docker compose -f docker-compose.yml logs -f fix-demo-client'"
+    echo "  Stop:         ssh -i ${SSH_KEY_PATH} ${DROPLET_USER}@${DROPLET_HOST} 'cd ${APP_DIR} && ./scripts/fix_demo_client_stop.sh'"
 }
 
 main "$@"

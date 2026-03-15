@@ -62,4 +62,41 @@ services:
       retries: 3
       start_period: 30s
 
+  fix-demo-client:
+    image: llexsimulator:1.0-SNAPSHOT
+    container_name: llexsimulator-fix-demo-client
+    profiles: ["demo-client"]
+    depends_on:
+      llexsimulator:
+        condition: service_healthy
+    entrypoint: ["java"]
+    command:
+      - "-Xms128m"
+      - "-Xmx256m"
+      - "-Dlog4j2.contextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector"
+      - "-Dlog4j2.asyncLoggerRingBufferSize=262144"
+      - "-Dllexsim.log.dir=/app/logs/fix-demo-client"
+      - "-Dllexsim.log.name=fix-demo-client"
+      - "-Dfix.demo.logDir=/app/logs/fix-demo-client/quickfixj"
+      - "-Dfix.demo.host=${FIX_CLIENT_HOST:-llexsimulator}"
+      - "-Dfix.demo.port=${FIX_CLIENT_PORT:-9880}"
+      - "-Dfix.demo.beginString=${FIX_CLIENT_BEGIN_STRING:-FIX.4.4}"
+      - "-Dfix.demo.senderCompId=${FIX_CLIENT_SENDER_COMP_ID:-CLIENT1}"
+      - "-Dfix.demo.targetCompId=${FIX_CLIENT_TARGET_COMP_ID:-LLEXSIM}"
+      - "-Dfix.demo.defaultApplVerId=${FIX_CLIENT_DEFAULT_APPL_VER_ID:-FIX.4.4}"
+      - "-Dfix.demo.symbol=${FIX_CLIENT_SYMBOL:-AAPL}"
+      - "-Dfix.demo.side=${FIX_CLIENT_SIDE:-BUY}"
+      - "-Dfix.demo.orderQty=${FIX_CLIENT_ORDER_QTY:-100}"
+      - "-Dfix.demo.price=${FIX_CLIENT_PRICE:-100.25}"
+      - "-Dfix.demo.rawLoggingEnabled=${FIX_CLIENT_RAW_LOGGING_ENABLED:-false}"
+      - "-Dfix.demo.heartBtInt=${FIX_CLIENT_HEARTBTINT:-30}"
+      - "-Dfix.demo.reconnectIntervalSec=${FIX_CLIENT_RECONNECT_INTERVAL_SEC:-5}"
+      - "-cp"
+      - "app.jar"
+      - "com.llexsimulator.client.FixDemoClientMain"
+      - "${FIX_DEMO_RATE:-500}"
+    volumes:
+      - ./logs:/app/logs
+    restart: "no"
+
 

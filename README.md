@@ -440,17 +440,13 @@ If you want the script to remove an old firewall rule that exposed port `8080`, 
 
 By default, the FIX acceptor is local-only on the droplet at `127.0.0.1:9880`.
 
-If you want to run the demo FIX client from your laptop, open an SSH tunnel first:
+If you want to inspect the FIX port locally from your laptop with another tool, open an SSH tunnel first:
 
 ```bash
 ssh -i ~/.ssh/<your-private-key> -N -L 9880:127.0.0.1:9880 root@203.0.113.10
 ```
 
-Then, in another terminal, run the demo client against your local forwarded port:
-
-```bash
-FIX_CLIENT_HOST=localhost FIX_CLIENT_PORT=9880 ./scripts/local_fix_demo_client.sh run 100
-```
+You can then point any local FIX tool at `localhost:9880`.
 
 #### Step 6 — Run the demo FIX client on the droplet only when needed
 
@@ -467,13 +463,13 @@ cd /opt/llexsimulator
 Start the demo client in the background at `100 msg/s`:
 
 ```bash
-FIX_DEMO_RATE=100 docker compose --profile demo-client up -d fix-demo-client
+./scripts/fix_demo_client_start.sh 100
 ```
 
 Start it at a higher rate:
 
 ```bash
-FIX_DEMO_RATE=500 docker compose --profile demo-client up -d fix-demo-client
+./scripts/fix_demo_client_start.sh 500
 ```
 
 View logs:
@@ -491,24 +487,22 @@ docker compose ps fix-demo-client
 Stop and remove it cleanly:
 
 ```bash
-docker compose stop fix-demo-client
-docker compose rm -f fix-demo-client
+./scripts/fix_demo_client_stop.sh
 ```
 
 Useful environment overrides for the droplet demo client:
 
 ```bash
-FIX_DEMO_RATE=250 \
 FIX_CLIENT_BEGIN_STRING=FIX.4.4 \
 FIX_CLIENT_SENDER_COMP_ID=CLIENT1 \
 FIX_CLIENT_TARGET_COMP_ID=LLEXSIM \
 FIX_CLIENT_SYMBOL=MSFT \
 FIX_CLIENT_ORDER_QTY=250 \
 FIX_CLIENT_PRICE=412.15 \
-docker compose --profile demo-client up -d fix-demo-client
+./scripts/fix_demo_client_start.sh 250
 ```
 
-Because the demo client runs in the same Compose network as the simulator, it connects to the simulator privately inside Docker and does not require the FIX port to be publicly exposed.
+Because the demo client runs in the same Compose network as the simulator, it connects to the simulator privately inside Docker using the internal hostname `llexsimulator` and does not require the FIX port to be publicly exposed.
 
 #### Step 7 — Useful dry runs
 
@@ -529,18 +523,25 @@ It connects to the simulator and continuously sends `NewOrderSingle` messages at
 fixed rate until stopped.
 
 ```bash
-./scripts/local_fix_demo_client.sh start        # default: 100 NewOrderSingles / second
-./scripts/local_fix_demo_client.sh start 500    # send 500 NOS / second in background
-./scripts/local_fix_demo_client.sh logs         # tail client progress
-./scripts/local_fix_demo_client.sh stop         # stop the background client
+./scripts/fix_demo_client_start.sh 100          # start at 100 NewOrderSingles / second
+./scripts/fix_demo_client_start.sh 500          # restart at 500 msg/s
+docker compose logs -f fix-demo-client          # tail client progress
+./scripts/fix_demo_client_stop.sh               # stop the background client
 ./scripts/local_stop_all.sh                     # stop both the background client and Docker simulator
 ./scripts/local_clean_ledgers.sh                # clear client/session ledgers and runtime state
 ```
 
+The same start/stop scripts work both:
+
+- in your local repo checkout on macOS/Linux, and
+- on the droplet under `/opt/llexsimulator/scripts/` after a release.
+
+No localhost or droplet hostname argument is needed in the normal Docker workflow because the client connects to the simulator using the internal Compose service name `llexsimulator`.
+
 Local helpers also honor `FIX_DEMO_RATE` when no explicit positional rate is passed:
 
 ```bash
-FIX_DEMO_RATE=500 ./scripts/local_fix_demo_client.sh start
+FIX_DEMO_RATE=500 ./scripts/fix_demo_client_start.sh
 FIX_DEMO_RATE=500 ./scripts/local_clean_and_run.sh
 FIX_DEMO_RATE=500 ./scripts/local_rebuild_and_run.sh
 ```
@@ -560,18 +561,12 @@ FIX_CLIENT_TARGET_COMP_ID=LLEXSIM \
 FIX_CLIENT_SYMBOL=MSFT \
 FIX_CLIENT_ORDER_QTY=250 \
 FIX_CLIENT_PRICE=412.15 \
-./scripts/local_fix_demo_client.sh start 1000
+./scripts/fix_demo_client_start.sh 1000
 ```
 
-The launcher now injects the required Java `--add-opens` flags automatically for Aeron/Agrona.
-If you need to override the demo client's Aeron directory explicitly, set:
+The demo client uses the same Docker image as the simulator, so the required JVM/module flags are already baked into the container runtime workflow.
 
-```bash
-FIX_CLIENT_AERON_DIR=/tmp/aeron-llexsim ./scripts/local_fix_demo_client.sh run 100
-```
-
-The demo client writes logs under `logs/fix-demo-client/` and keeps its QuickFIX/J
-session logs under `logs/fix-demo-client/quickfixj/`.
+The demo client writes logs under `logs/fix-demo-client/` inside the shared Docker volume and keeps its QuickFIX/J session logs under `logs/fix-demo-client/quickfixj/`.
 
 ---
 
