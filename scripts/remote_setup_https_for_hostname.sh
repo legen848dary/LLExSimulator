@@ -77,6 +77,7 @@ ${BOLD}Examples:${RESET}
 
 ${BOLD}Important:${RESET}
   - Your DNS ${BOLD}A${RESET} record for the FQDN must already point to the droplet's public IP.
+  - Use either direct ${BOLD}root${RESET} SSH access or a passwordless ${BOLD}sudo${RESET} user.
   - DNS maps the hostname to the droplet IP only.
   - Nginx on the droplet maps that hostname to ${BOLD}http://127.0.0.1:${APP_PORT}${RESET}.
   - The FIX port remains separate, local-only by default, and is not served over HTTPS.
@@ -291,6 +292,28 @@ log_status() {
     printf '[remote] %-26s %s\n' "\${label}:" "\${value}"
 }
 
+run_root() {
+    if [[ "\$(id -u)" -eq 0 ]]; then
+        "\$@"
+    else
+        sudo "\$@"
+    fi
+}
+
+require_root_access() {
+    if [[ "\$(id -u)" -eq 0 ]]; then
+        return 0
+    fi
+    if ! command -v sudo >/dev/null 2>&1; then
+        echo 'This HTTPS setup requires root or a passwordless sudo-capable user.' >&2
+        exit 1
+    fi
+    if ! sudo -n true >/dev/null 2>&1; then
+        echo 'Passwordless sudo is required for HTTPS setup when not logging in as root.' >&2
+        exit 1
+    fi
+}
+
 if [[ ! -r /etc/os-release ]]; then
     echo 'This machine does not appear to be Ubuntu/Linux with /etc/os-release.' >&2
     exit 1
@@ -301,6 +324,8 @@ if [[ "\${ID:-}" != 'ubuntu' ]]; then
     echo "This HTTPS bootstrap currently supports Ubuntu only (found: \${ID:-unknown})." >&2
     exit 1
 fi
+
+require_root_access
 
 if [[ "\${STATUS_ONLY}" == 'true' ]]; then
     cert_exists='no'
@@ -314,12 +339,12 @@ if [[ "\${STATUS_ONLY}" == 'true' ]]; then
     fi
 
     nginx_active='no'
-    if systemctl is-active --quiet nginx 2>/dev/null; then
+    if run_root systemctl is-active --quiet nginx 2>/dev/null; then
         nginx_active='yes'
     fi
 
     nginx_config_ok='no'
-    if command -v nginx >/dev/null 2>&1 && nginx -t >/tmp/llex-nginx-status.out 2>&1; then
+    if command -v nginx >/dev/null 2>&1 && run_root nginx -t >/tmp/llex-nginx-status.out 2>&1; then
         nginx_config_ok='yes'
     fi
 
@@ -338,7 +363,7 @@ if [[ "\${STATUS_ONLY}" == 'true' ]]; then
 
     ufw_enabled='unknown'
     if command -v ufw >/dev/null 2>&1; then
-        if ufw status | grep -q '^Status: active'; then
+        if run_root ufw status | grep -q '^Status: active'; then
             ufw_enabled='active'
         else
             ufw_enabled='inactive'
@@ -348,7 +373,7 @@ if [[ "\${STATUS_ONLY}" == 'true' ]]; then
     allow_80='unknown'
     allow_443='unknown'
     if command -v ufw >/dev/null 2>&1; then
-        ufw_status="\$(ufw status 2>/dev/null || true)"
+        ufw_status="\$(run_root ufw status 2>/dev/null || true)"
         if printf '%s\n' "\${ufw_status}" | grep -Eq '(^|[[:space:]])80(/tcp)?[[:space:]].*ALLOW|Nginx Full[[:space:]].*ALLOW'; then
             allow_80='yes'
         else
@@ -390,9 +415,9 @@ if [[ "\${STATUS_ONLY}" == 'true' ]]; then
     exit 0
 fi
 
-apt-get update
-apt-get install -y nginx certbot python3-certbot-nginx curl ufw
-systemctl enable --now nginx
+run_root apt-get update
+run_root apt-get install -y nginx certbot python3-certbot-nginx curl ufw
+run_root systemctl enable --now nginx
 
 if curl -fsS "http://127.0.0.1:\${APP_PORT}/api/health" >/dev/null 2>&1; then
     log "Backend health check succeeded on 127.0.0.1:\${APP_PORT}."
@@ -486,14 +511,14 @@ install_managed_config() {
         return 0
     fi
 
-    install -m 0644 "\${rendered_file}" "\${NGINX_SITE_PATH}"
+    run_root install -m 0644 "\${rendered_file}" "\${NGINX_SITE_PATH}"
     rm -f "\${rendered_file}"
     log "Updated Nginx site config: \${NGINX_SITE_PATH}"
 }
 
 ensure_nginx_site_enabled() {
-    ln -sfn "\${NGINX_SITE_PATH}" "/etc/nginx/sites-enabled/\${NGINX_SITE_NAME}"
-    rm -f /etc/nginx/sites-enabled/default
+    run_root ln -sfn "\${NGINX_SITE_PATH}" "/etc/nginx/sites-enabled/\${NGINX_SITE_NAME}"
+    run_root rm -f /etc/nginx/sites-enabled/default
 }
 
 cert_exists=false
@@ -506,10 +531,10 @@ if [[ -s /etc/letsencrypt/options-ssl-nginx.conf && -s /etc/letsencrypt/ssl-dhpa
     ssl_support_files_present=true
 fi
 
-ufw allow 'Nginx Full'
+run_root ufw allow 'Nginx Full'
 
 if [[ "\${CLOSE_DIRECT_WEB_PORT}" == 'true' ]]; then
-    ufw delete allow "\${APP_PORT}/tcp" >/dev/null 2>&1 || true
+    run_root ufw delete allow "\${APP_PORT}/tcp" >/dev/null 2>&1 || true
 fi
 
 if [[ "\${cert_exists}" != 'true' || "\${ssl_support_files_present}" != 'true' ]]; then
@@ -519,13 +544,13 @@ if [[ "\${cert_exists}" != 'true' || "\${ssl_support_files_present}" != 'true' ]
     render_config_to_file http "\${http_config_tmp}"
     install_managed_config "\${http_config_tmp}"
     ensure_nginx_site_enabled
-    nginx -t
-    systemctl reload nginx
+    run_root nginx -t
+    run_root systemctl reload nginx
 
     if [[ -n "\${CERTBOT_EMAIL}" ]]; then
-        certbot certonly --nginx -d "\${FQDN}" --non-interactive --agree-tos --email "\${CERTBOT_EMAIL}"
+        run_root certbot certonly --nginx -d "\${FQDN}" --non-interactive --agree-tos --email "\${CERTBOT_EMAIL}"
     else
-        certbot certonly --nginx -d "\${FQDN}" --non-interactive --agree-tos --register-unsafely-without-email
+        run_root certbot certonly --nginx -d "\${FQDN}" --non-interactive --agree-tos --register-unsafely-without-email
     fi
 
     cert_exists=true
@@ -544,8 +569,8 @@ render_config_to_file https "\${https_config_tmp}"
 install_managed_config "\${https_config_tmp}"
 ensure_nginx_site_enabled
 
-nginx -t
-systemctl reload nginx
+run_root nginx -t
+run_root systemctl reload nginx
 
 log 'HTTPS setup complete.'
 log 'Nginx vhost:'

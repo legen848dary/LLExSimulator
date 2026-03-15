@@ -326,9 +326,15 @@ Run this once on a fresh Ubuntu droplet:
 What it does:
 
 - installs Docker Engine from Docker's official Ubuntu repository
-- installs deployment helpers such as `git`, `rsync`, `curl`, `jq`, `ufw`, and `fail2ban`
+- installs deployment helpers such as `git`, `rsync`, `curl`, `jq`, `python3`, `ufw`, and `fail2ban`
 - enables `docker` and `containerd`
-- creates `/opt/llexsimulator/{config,logs,releases}`
+- grants Docker access to the SSH user used for bootstrap (for example `root`, `ubuntu`, or `deploy`)
+- creates `/opt/llexsimulator/{config,logs,releases,scripts}` and assigns ownership to that SSH user
+
+The remote setup, release, and HTTPS scripts support either:
+
+- direct `root` SSH access, or
+- a passwordless `sudo` user such as `ubuntu` or `deploy`
 
 Security defaults:
 
@@ -355,9 +361,40 @@ What this script does:
 1. builds the fat JAR locally with `./gradlew shadowJar`
 2. builds a droplet-targeted Docker image locally with `docker buildx --platform linux/amd64`
 3. syncs `config/` to `/opt/llexsimulator/config/` on the droplet
-4. streams the Docker image to the droplet using `docker save | ssh ... docker load`
-5. writes `/opt/llexsimulator/docker-compose.yml`
-6. starts or recreates the container remotely and waits for health
+4. syncs droplet helper scripts to `/opt/llexsimulator/scripts/`
+5. streams the Docker image to the droplet using `docker save | ssh ... docker load`
+6. verifies remote Docker/Compose access and write permissions before deployment
+7. writes `/opt/llexsimulator/docker-compose.yml`
+8. starts or recreates the container remotely and waits for health
+
+#### Zero-to-working checklist for a brand-new droplet
+
+From your local machine, this is the shortest repeatable path from an empty droplet to a working simulator:
+
+```bash
+# 1. Bootstrap the droplet for Docker (root or a passwordless sudo user)
+./scripts/remote_setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root
+
+# 2. Build locally and deploy the simulator to the droplet
+./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
+
+# 3. Verify the app is healthy on the droplet
+ssh -i ~/.ssh/<your-private-key> root@203.0.113.10 'curl -fsS http://127.0.0.1:8080/api/health | cat'
+
+# 4. Optional: expose the web UI through HTTPS on your hostname
+./scripts/remote_setup_https_for_hostname.sh \
+  203.0.113.10 \
+  ~/.ssh/<your-private-key> \
+  root \
+  --fqdn sim.example.com \
+  --email ops@example.com
+```
+
+After that, rerunning only the release script is the normal rebuild/redeploy path:
+
+```bash
+./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
+```
 
 Secure deployment defaults:
 

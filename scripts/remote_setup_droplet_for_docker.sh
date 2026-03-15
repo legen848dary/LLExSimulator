@@ -77,7 +77,7 @@ ${BOLD}Examples:${RESET}
           ./scripts/${SCRIPT_NAME} 203.0.113.10 ~/.ssh/<your-private-key> deploy --app-dir /opt/llexsimulator
 
 ${BOLD}Notes:${RESET}
-  - The script expects a fresh Ubuntu droplet and root SSH access.
+  - The script supports either direct ${BOLD}root${RESET} SSH access or a passwordless ${BOLD}sudo${RESET} user.
   - UFW opens SSH by default.
   - Web/FIX ports remain closed unless you pass ${GREEN}--open-web-port${RESET} and/or ${GREEN}--open-fix-port${RESET}.
   - The remote deployment directory layout created is:
@@ -85,6 +85,7 @@ ${BOLD}Notes:${RESET}
       ${APP_DIR}/config/
       ${APP_DIR}/logs/
       ${APP_DIR}/releases/
+      ${APP_DIR}/scripts/
 EOF
 }
 
@@ -199,9 +200,32 @@ ENABLE_FIREWALL='${ENABLE_FIREWALL}'
 ENABLE_FAIL2BAN='${ENABLE_FAIL2BAN}'
 OPEN_WEB_PORT='${OPEN_WEB_PORT}'
 OPEN_FIX_PORT='${OPEN_FIX_PORT}'
+DEPLOY_USER='${DROPLET_USER}'
 
 log() {
     printf '[remote] %s\n' "\$*"
+}
+
+run_root() {
+    if [[ "\$(id -u)" -eq 0 ]]; then
+        "\$@"
+    else
+        sudo "\$@"
+    fi
+}
+
+require_root_access() {
+    if [[ "\$(id -u)" -eq 0 ]]; then
+        return 0
+    fi
+    if ! command -v sudo >/dev/null 2>&1; then
+        echo 'This bootstrap requires root or a passwordless sudo-capable user.' >&2
+        exit 1
+    fi
+    if ! sudo -n true >/dev/null 2>&1; then
+        echo 'Passwordless sudo is required for remote bootstrap when not logging in as root.' >&2
+        exit 1
+    fi
 }
 
 if [[ ! -r /etc/os-release ]]; then
@@ -215,16 +239,25 @@ if [[ "\${ID:-}" != 'ubuntu' ]]; then
     exit 1
 fi
 
-apt-get update
-apt-get install -y ca-certificates curl gnupg lsb-release jq git rsync unzip tar ufw
+require_root_access
 
-if [[ "\${ENABLE_FAIL2BAN}" == 'true' ]]; then
-    apt-get install -y fail2ban
+if ! id -u "\${DEPLOY_USER}" >/dev/null 2>&1; then
+    echo "Requested deploy user does not exist on the droplet: \${DEPLOY_USER}" >&2
+    exit 1
 fi
 
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
+DEPLOY_GROUP="\$(id -gn "\${DEPLOY_USER}")"
+
+run_root apt-get update
+run_root apt-get install -y ca-certificates curl gnupg lsb-release jq git rsync unzip tar ufw python3
+
+if [[ "\${ENABLE_FAIL2BAN}" == 'true' ]]; then
+    run_root apt-get install -y fail2ban
+fi
+
+run_root install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | run_root tee /etc/apt/keyrings/docker.asc >/dev/null
+run_root chmod a+r /etc/apt/keyrings/docker.asc
 
 ARCH="\$(dpkg --print-architecture)"
 CODENAME="\${VERSION_CODENAME:-}"
@@ -233,31 +266,36 @@ if [[ -z "\${CODENAME}" ]]; then
     exit 1
 fi
 
-echo "deb [arch=\${ARCH} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \${CODENAME} stable" \
-    > /etc/apt/sources.list.d/docker.list
+printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' "\${ARCH}" "\${CODENAME}" \
+    | run_root tee /etc/apt/sources.list.d/docker.list >/dev/null
 
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+run_root apt-get update
+run_root apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-systemctl enable --now containerd
-systemctl enable --now docker
+run_root systemctl enable --now containerd
+run_root systemctl enable --now docker
 
-mkdir -p "\${APP_DIR}" "\${APP_DIR}/config" "\${APP_DIR}/logs" "\${APP_DIR}/releases"
-chmod 755 "\${APP_DIR}" "\${APP_DIR}/config" "\${APP_DIR}/logs" "\${APP_DIR}/releases"
+if [[ "\${DEPLOY_USER}" != 'root' ]]; then
+    run_root usermod -aG docker "\${DEPLOY_USER}"
+fi
+
+run_root install -d -m 0755 -o "\${DEPLOY_USER}" -g "\${DEPLOY_GROUP}" \
+    "\${APP_DIR}" "\${APP_DIR}/config" "\${APP_DIR}/logs" "\${APP_DIR}/releases" "\${APP_DIR}/scripts"
+run_root chown -R "\${DEPLOY_USER}:\${DEPLOY_GROUP}" "\${APP_DIR}"
 
 if [[ "\${ENABLE_FIREWALL}" == 'true' ]]; then
-    ufw allow OpenSSH
+    run_root ufw allow OpenSSH
     if [[ "\${OPEN_WEB_PORT}" == 'true' ]]; then
-        ufw allow "\${WEB_PORT}/tcp"
+        run_root ufw allow "\${WEB_PORT}/tcp"
     fi
     if [[ "\${OPEN_FIX_PORT}" == 'true' ]]; then
-        ufw allow "\${FIX_PORT}/tcp"
+        run_root ufw allow "\${FIX_PORT}/tcp"
     fi
-    ufw --force enable
+    run_root ufw --force enable
 fi
 
 if [[ "\${ENABLE_FAIL2BAN}" == 'true' ]]; then
-    systemctl enable --now fail2ban
+    run_root systemctl enable --now fail2ban
 fi
 
 log 'Docker version:'
@@ -269,7 +307,11 @@ for cmd in git rsync jq curl ufw; do
     command -v "\${cmd}" >/dev/null 2>&1 && printf '  - %s -> %s\n' "\${cmd}" "\$(command -v "\${cmd}")"
 done
 log 'Application directory ready:'
-printf '  - %s\n' "\${APP_DIR}" "\${APP_DIR}/config" "\${APP_DIR}/logs" "\${APP_DIR}/releases"
+printf '  - %s\n' "\${APP_DIR}" "\${APP_DIR}/config" "\${APP_DIR}/logs" "\${APP_DIR}/releases" "\${APP_DIR}/scripts"
+log "Deployment user ready: \${DEPLOY_USER} (group: \${DEPLOY_GROUP})"
+if [[ "\${DEPLOY_USER}" != 'root' ]]; then
+    log "Docker group membership granted to \${DEPLOY_USER}; new SSH sessions can use docker without sudo."
+fi
 EOF
 }
 

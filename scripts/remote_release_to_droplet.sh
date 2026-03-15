@@ -127,6 +127,10 @@ ${BOLD}Security defaults:${RESET}
   - CPU auto-pinning leaves one vCPU free for the host on multi-core droplets (for example, a 2 vCPU droplet pins the simulator to one core).
   - Droplet releases build a ${TARGET_PLATFORM} image by default so an Apple Silicon laptop can deploy safely to an amd64 Ubuntu host.
   - Use ${GREEN}--public-web-port${RESET} and/or ${GREEN}--public-fix-port${RESET} only if you explicitly want public exposure.
+
+${BOLD}Prerequisite:${RESET}
+  - Run ./scripts/remote_setup_droplet_for_docker.sh first on a brand-new droplet.
+  - The release script supports either direct ${BOLD}root${RESET} SSH access or the same passwordless ${BOLD}sudo${RESET} user bootstrapped above.
 EOF
 }
 
@@ -414,7 +418,7 @@ sync_remote_config() {
 
 sync_remote_helper_scripts() {
     banner "Syncing remote helper scripts"
-    info "Syncing demo-client helper scripts to $(ssh_target):${APP_DIR}/scripts/"
+    info "Syncing droplet helper scripts to $(ssh_target):${APP_DIR}/scripts/"
 
     local rsync_shell
     rsync_shell="$(rsync_ssh_command)"
@@ -509,7 +513,80 @@ prepare_remote_directories() {
     banner "Preparing remote directories"
     local remote_command
     remote_command=$(cat <<EOF
-mkdir -p '${APP_DIR}' '${APP_DIR}/config' '${APP_DIR}/logs' '${APP_DIR}/releases' '${APP_DIR}/scripts'
+set -euo pipefail
+APP_DIR='${APP_DIR}'
+DEPLOY_USER='${DROPLET_USER}'
+
+run_root() {
+    if [[ "\$(id -u)" -eq 0 ]]; then
+        "\$@"
+    else
+        sudo "\$@"
+    fi
+}
+
+if ! id -u "\${DEPLOY_USER}" >/dev/null 2>&1; then
+    echo "Remote deploy user does not exist: \${DEPLOY_USER}" >&2
+    exit 1
+fi
+
+if [[ "\$(id -u)" -ne 0 ]]; then
+    if ! command -v sudo >/dev/null 2>&1; then
+        echo 'Preparing /opt application directories requires root or a passwordless sudo-capable user.' >&2
+        exit 1
+    fi
+    if ! sudo -n true >/dev/null 2>&1; then
+        echo 'Passwordless sudo is required to prepare the remote app directory when not logging in as root.' >&2
+        exit 1
+    fi
+fi
+
+DEPLOY_GROUP="\$(id -gn "\${DEPLOY_USER}")"
+run_root install -d -m 0755 -o "\${DEPLOY_USER}" -g "\${DEPLOY_GROUP}" \
+    "\${APP_DIR}" "\${APP_DIR}/config" "\${APP_DIR}/logs" "\${APP_DIR}/releases" "\${APP_DIR}/scripts"
+run_root chown -R "\${DEPLOY_USER}:\${DEPLOY_GROUP}" "\${APP_DIR}"
+EOF
+)
+    run_ssh_command "${remote_command}"
+}
+
+verify_remote_runtime() {
+    banner "Remote preflight"
+    info "Checking Docker, Docker Compose, and write access on $(ssh_target)..."
+
+    local remote_command
+    remote_command=$(cat <<EOF
+set -euo pipefail
+APP_DIR='${APP_DIR}'
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo 'Docker is not installed on the droplet. Run ./scripts/remote_setup_droplet_for_docker.sh first.' >&2
+    exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+    echo "Docker daemon is not accessible for user \$(id -un). Re-run the bootstrap script or reconnect with a user that has docker access." >&2
+    exit 1
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+    echo 'Docker Compose v2 is not available on the droplet. Run the bootstrap script again.' >&2
+    exit 1
+fi
+
+for path in "\${APP_DIR}" "\${APP_DIR}/config" "\${APP_DIR}/logs" "\${APP_DIR}/releases" "\${APP_DIR}/scripts"; do
+    if [[ ! -d "\${path}" ]]; then
+        echo "Expected remote directory is missing: \${path}" >&2
+        exit 1
+    fi
+    if [[ ! -w "\${path}" ]]; then
+        echo "Remote directory is not writable by user \$(id -un): \${path}" >&2
+        exit 1
+    fi
+done
+
+echo "docker_access_user=\$(id -un)"
+docker compose version
 EOF
 )
     run_ssh_command "${remote_command}"
@@ -603,10 +680,11 @@ main() {
     info "Config sync: ${SYNC_CONFIG}"
     info "Skip local build: ${SKIP_BUILD}"
 
+    prepare_remote_directories
+    verify_remote_runtime
     build_local_image
     ensure_local_image_present
     verify_local_image_platform
-    prepare_remote_directories
     sync_remote_config
     sync_remote_helper_scripts
     stream_image_to_remote
