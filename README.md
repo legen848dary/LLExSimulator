@@ -396,6 +396,20 @@ After that, rerunning only the release script is the normal rebuild/redeploy pat
 ./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
 ```
 
+If a deployment fails specifically during the Docker image upload step and you already have the correct local image, you can retry from the image-transfer phase onward without rebuilding:
+
+```bash
+./scripts/remote_retry_image_transfer_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
+```
+
+If your network is flaky and you want resumable uploads instead of restarting from byte 0 on every interruption, use the rsync-based resumable variant instead:
+
+```bash
+./scripts/remote_resume_image_transfer_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
+```
+
+Use the full release script when you need a fresh JAR/image build or a config sync. Use the streaming retry script for a quick one-shot resend. Use the resumable script when the build is already done and the upload path needs true resume support.
+
 Secure deployment defaults:
 
 - the web/API port binds to `127.0.0.1:8080` on the droplet
