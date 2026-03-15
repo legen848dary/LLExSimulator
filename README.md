@@ -631,6 +631,9 @@ order.pool.size=131072
 # Web Server
 web.port=8080
 
+# Benchmark Mode
+benchmark.mode.enabled=false     # true = keep REST/health, disable live Aeron/WebSocket metrics fan-out
+
 # Aeron IPC
 aeron.dir=/dev/shm/aeron-llexsim              # Falls back to /tmp/aeron-llexsim when /dev/shm is unavailable/too small
 artio.library.aeron.channel=aeron:ipc?term-length=8388608
@@ -650,6 +653,8 @@ Mount a custom config without rebuilding:
 ```
 
 The `docker-compose.yml` mounts `./config/` as a read-only volume inside the container.
+
+For lower-noise latency runs, set `benchmark.mode.enabled=true` in `./config/simulator.properties` and restart the simulator. This keeps the REST/health endpoints available but disables the live Aeron/WebSocket metrics fan-out used by the GUI.
 
 ---
 

@@ -24,7 +24,8 @@ class AeronRuntimeTuningTest {
                 131072,
                 "BUSY_SPIN",
                 131072,
-                500);
+                500,
+                false);
 
         SimulatorConfig resolved = AeronRuntimeTuning.resolve(base, 64L * 1024L * 1024L);
 
@@ -47,7 +48,8 @@ class AeronRuntimeTuningTest {
                 131072,
                 "BUSY_SPIN",
                 131072,
-                500);
+                500,
+                false);
 
         SimulatorConfig resolved = AeronRuntimeTuning.resolve(base, 512L * 1024L * 1024L);
 

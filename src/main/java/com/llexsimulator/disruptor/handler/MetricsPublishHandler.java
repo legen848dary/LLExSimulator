@@ -23,6 +23,7 @@ public final class MetricsPublishHandler implements EventHandler<OrderEvent> {
     private final MetricsRegistry  registry;
     private final MetricsPublisher publisher;
     private final int              publishInterval;
+    private final boolean          livePublishingEnabled;
 
     // Pre-allocated buffer for order event JSON (disruptor thread only — no sync needed)
     private final StringBuilder orderEventBuf = new StringBuilder(512);
@@ -34,10 +35,12 @@ public final class MetricsPublishHandler implements EventHandler<OrderEvent> {
 
     public MetricsPublishHandler(MetricsRegistry registry,
                                  MetricsPublisher publisher,
-                                 int publishInterval) {
+                                 int publishInterval,
+                                 boolean livePublishingEnabled) {
         this.registry        = registry;
         this.publisher       = publisher;
         this.publishInterval = publishInterval;
+        this.livePublishingEnabled = livePublishingEnabled;
     }
 
     /** Wire in the WebSocket broadcast callback once the web server is ready. */
@@ -62,15 +65,17 @@ public final class MetricsPublishHandler implements EventHandler<OrderEvent> {
         }
 
         if (++eventCounter % publishInterval == 0) {
-            publishSnapshot(now);
-            emitOrderEvent(event, latencyNs);
+            long[] snapshot = registry.snapshot();
+            if (livePublishingEnabled) {
+                publishSnapshot(now, snapshot);
+                emitOrderEvent(event, latencyNs);
+            }
         }
     }
 
     // ── Metrics snapshot ─────────────────────────────────────────────────────
 
-    private void publishSnapshot(long snapshotTimeNs) {
-        long[] snap = registry.snapshot();
+    private void publishSnapshot(long snapshotTimeNs, long[] snap) {
         // snap[4] = cancels — not in Aeron/SBE path; the WebSocket subscriber reads it directly
         publisher.publish(
                 snapshotTimeNs,

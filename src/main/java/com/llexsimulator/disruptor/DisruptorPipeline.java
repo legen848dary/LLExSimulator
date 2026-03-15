@@ -1,6 +1,7 @@
 package com.llexsimulator.disruptor;
 
 import com.llexsimulator.config.SimulatorConfig;
+import com.llexsimulator.disruptor.handler.CompositeOrderEventHandler;
 import com.llexsimulator.disruptor.handler.ExecutionReportHandler;
 import com.llexsimulator.disruptor.handler.FillStrategyHandler;
 import com.llexsimulator.disruptor.handler.MetricsPublishHandler;
@@ -21,7 +22,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Wires up the 4-stage Disruptor pipeline:
+ * Wires up the order-processing Disruptor pipeline:
  * <pre>
  *   ValidationHandler → FillStrategyHandler → ExecutionReportHandler → MetricsPublishHandler
  * </pre>
@@ -39,10 +40,7 @@ public final class DisruptorPipeline {
 
     public DisruptorPipeline(
             SimulatorConfig config,
-            ValidationHandler validationHandler,
-            FillStrategyHandler fillStrategyHandler,
-            ExecutionReportHandler executionReportHandler,
-            MetricsPublishHandler metricsPublishHandler
+            CompositeOrderEventHandler compositeOrderEventHandler
     ) {
         WaitStrategy waitStrategy = "BUSY_SPIN".equalsIgnoreCase(config.waitStrategy())
                 ? new BusySpinWaitStrategy()
@@ -58,11 +56,8 @@ public final class DisruptorPipeline {
                 waitStrategy
         );
 
-        // Sequential pipeline — each handler sees the event after the previous one
-        disruptor.handleEventsWith(validationHandler)
-                 .then(fillStrategyHandler)
-                 .then(executionReportHandler)
-                 .then(metricsPublishHandler);
+        // Single consumer thread — preserve stage ordering without cross-thread handoff.
+        disruptor.handleEventsWith(compositeOrderEventHandler);
 
         this.ringBuffer = disruptor.getRingBuffer();
         log.info("Disruptor pipeline configured: ringBufferSize={} waitStrategy={}",

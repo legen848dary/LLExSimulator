@@ -42,7 +42,7 @@ require_script() {
     fi
 }
 
-RATE="${1:-${FIX_DEMO_RATE:-100}}"
+RATE="${1:-${FIX_DEMO_RATE:-500}}"
 
 require_script "${SCRIPTS_DIR}/local_llexsim.sh"
 require_script "${SCRIPTS_DIR}/local_fix_demo_client.sh"

@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigLoaderTest {
 
@@ -26,13 +28,14 @@ class ConfigLoaderTest {
         Path externalConfig = tempDir.resolve("external.properties");
         Path localConfig = tempDir.resolve("local.properties");
 
-        Files.writeString(externalConfig, "fix.port=9991\nwait.strategy=SLEEPING\n");
-        Files.writeString(localConfig, "fix.port=9992\nwait.strategy=BUSY_SPIN\n");
+        Files.writeString(externalConfig, "fix.port=9991\nwait.strategy=SLEEPING\nbenchmark.mode.enabled=true\n");
+        Files.writeString(localConfig, "fix.port=9992\nwait.strategy=BUSY_SPIN\nbenchmark.mode.enabled=false\n");
 
         SimulatorConfig config = ConfigLoader.load(externalConfig, localConfig);
 
         assertEquals(9991, config.fixPort());
         assertEquals("SLEEPING", config.waitStrategy());
+        assertTrue(config.benchmarkModeEnabled());
     }
 
     @Test
@@ -54,10 +57,11 @@ class ConfigLoaderTest {
                 tempDir.resolve("missing-local.properties"));
 
         assertEquals(9880, config.fixPort());
-        assertEquals(false, config.fixRawMessageLoggingEnabled());
+        assertFalse(config.fixRawMessageLoggingEnabled());
         assertEquals("BUSY_SPIN", config.waitStrategy());
         assertEquals("aeron:ipc?term-length=8388608", config.artioLibraryAeronChannel());
         assertEquals("aeron:ipc?term-length=65536", config.metricsAeronChannel());
+        assertFalse(config.benchmarkModeEnabled());
     }
 }
 
