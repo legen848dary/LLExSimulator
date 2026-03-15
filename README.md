@@ -396,6 +396,16 @@ After that, rerunning only the release script is the normal rebuild/redeploy pat
 ./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
 ```
 
+Once deployed, you can manage the simulator directly on the droplet with:
+
+```bash
+cd /opt/llexsimulator
+./scripts/droplet_llexsim.sh start
+./scripts/droplet_llexsim.sh health
+./scripts/droplet_llexsim.sh logs
+./scripts/droplet_llexsim.sh stop
+```
+
 If a deployment fails specifically during the Docker image upload step and you already have the correct local image, you can retry from the image-transfer phase onward without rebuilding:
 
 ```bash
