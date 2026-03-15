@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup_droplet_for_docker.sh — Bootstrap a fresh Ubuntu droplet for Docker
+# remote_setup_droplet_for_docker.sh — Bootstrap a fresh Ubuntu droplet for Docker
 # =============================================================================
 # Usage:
-#   ./scripts/setup_droplet_for_docker.sh <host-or-ip> <ssh-key-path> <ssh-user> [options]
+#   ./scripts/remote_setup_droplet_for_docker.sh <host-or-ip> <ssh-key-path> <ssh-user> [options]
 #
 # What it does on the remote droplet:
 #   1. Installs Docker Engine from Docker's official Ubuntu apt repository

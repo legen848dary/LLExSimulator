@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# release_to_droplet.sh — Build locally and deploy the Docker image to a droplet
+# remote_release_to_droplet.sh — Build locally and deploy the Docker image to a droplet
 # =============================================================================
 # Usage:
-#   ./scripts/release_to_droplet.sh <host-or-ip> <ssh-key-path> <ssh-user> [options]
+#   ./scripts/remote_release_to_droplet.sh <host-or-ip> <ssh-key-path> <ssh-user> [options]
 #
 # What it does:
 #   1. Compiles the fat JAR locally and builds a droplet-targeted Docker image
@@ -23,8 +23,8 @@ set -euo pipefail
 SCRIPT_NAME="$(basename "$0")"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="${PROJECT_ROOT}/scripts"
-BUILD_SCRIPT="${SCRIPTS_DIR}/llexsim.sh"
-REMOTE_SCRIPT_RENDERER="${SCRIPTS_DIR}/render_release_remote_script.py"
+BUILD_SCRIPT="${SCRIPTS_DIR}/local_llexsim.sh"
+REMOTE_SCRIPT_RENDERER="${SCRIPTS_DIR}/remote_render_release_remote_script.py"
 LOCAL_CONFIG_DIR="${PROJECT_ROOT}/config"
 GRADLEW_BIN="${PROJECT_ROOT}/gradlew"
 
@@ -89,7 +89,7 @@ ${BOLD}Options:${RESET}
   ${GREEN}--cpuset <auto|none|range>${RESET} CPU pinning for remote compose (default: ${CPUSET_MODE})
   ${GREEN}--release-id <id>${RESET}         Override the generated release identifier
   ${GREEN}--no-build${RESET}                Skip the local rebuild and reuse the current local image
-  ${GREEN}--no-cache${RESET}                Pass --no-cache to ./scripts/llexsim.sh build
+  ${GREEN}--no-cache${RESET}                Pass --no-cache to ./scripts/local_llexsim.sh build
   ${GREEN}--skip-config-sync${RESET}        Keep the droplet's existing ${APP_DIR}/config contents
   ${GREEN}--dry-run${RESET}                 Print the commands and remote script without executing them
   ${GREEN}help${RESET}                      Show this help

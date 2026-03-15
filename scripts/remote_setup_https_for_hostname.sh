@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup_https_for_hostname.sh — Configure Nginx + Certbot for a droplet hostname
+# remote_setup_https_for_hostname.sh — Configure Nginx + Certbot for a droplet hostname
 # =============================================================================
 # Usage:
-#   ./scripts/setup_https_for_hostname.sh <host-or-ip> <ssh-key-path> <ssh-user> --fqdn <hostname> [options]
+#   ./scripts/remote_setup_https_for_hostname.sh <host-or-ip> <ssh-key-path> <ssh-user> --fqdn <hostname> [options]
 #
 # What it does on the remote Ubuntu droplet:
 #   1. Installs Nginx, Certbot, and the Certbot Nginx plugin

@@ -3,7 +3,7 @@
 # Demo FIX Client lifecycle helper
 # =============================================================================
 # Usage:
-#   ./scripts/fix-demo-client.sh <command> [rate-per-second]
+#   ./scripts/local_fix_demo_client.sh <command> [rate-per-second]
 #
 # Rate precedence:
 #   1. explicit positional [rate-per-second]
@@ -64,15 +64,15 @@ client_running() {
 }
 
 ensure_jar() {
-    # 'llexsim.sh build' is the canonical build step that produces the fat JAR.
+    # 'local_llexsim.sh build' is the canonical build step that produces the fat JAR.
     # If it already exists, trust it and start immediately — no Gradle invocation.
     # Only fall back to building when the JAR is genuinely absent (e.g. after a
-    # fresh clone or 'llexsim.sh purge' before 'llexsim.sh build' was run).
+    # fresh clone or 'local_llexsim.sh purge' before 'local_llexsim.sh build' was run).
     if [[ -f "${JAR_PATH}" ]]; then
         return 0
     fi
     warn "JAR not found at ${JAR_PATH}"
-    info "Building fat JAR with Gradle (run 'llexsim.sh build' to avoid this)..."
+    info "Building fat JAR with Gradle (run 'local_llexsim.sh build' to avoid this)..."
     (cd "${PROJECT_ROOT}" && ./gradlew --no-daemon -q shadowJar -x test)
 }
 
@@ -153,7 +153,7 @@ cmd_start() {
     fi
 
     info "Starting demo client in background at ${rate} NewOrderSingles/sec..."
-    nohup "${PROJECT_ROOT}/scripts/fix-demo-client.sh" run "${rate}" >"${CONSOLE_LOG}" 2>&1 &
+    nohup "${PROJECT_ROOT}/scripts/local_fix_demo_client.sh" run "${rate}" >"${CONSOLE_LOG}" 2>&1 &
     echo $! >"${PID_FILE}"
     sleep 1
 
@@ -246,7 +246,7 @@ cmd_help() {
 ${BOLD}${CYAN}Demo FIX Client lifecycle helper${RESET}
 
 ${BOLD}Usage:${RESET}
-  ./scripts/fix-demo-client.sh <command> [rate-per-second]
+  ./scripts/local_fix_demo_client.sh <command> [rate-per-second]
 
 ${BOLD}Commands:${RESET}
   ${GREEN}start [rate]${RESET}   Start in background (default rate: ${DEFAULT_RATE} msg/s)
@@ -270,11 +270,11 @@ ${BOLD}Environment Overrides:${RESET}
   FIX_DEMO_JAVA_OPTS="-Xms256m -Xmx256m"
 
 ${BOLD}Examples:${RESET}
-  ./scripts/fix-demo-client.sh start
-  ./scripts/fix-demo-client.sh start 250
-  ./scripts/fix-demo-client.sh run 1000
-  FIX_CLIENT_BEGIN_STRING=FIX.4.4 ./scripts/fix-demo-client.sh start 500
-  ./scripts/fix-demo-client.sh stop
+  ./scripts/local_fix_demo_client.sh start
+  ./scripts/local_fix_demo_client.sh start 250
+  ./scripts/local_fix_demo_client.sh run 1000
+  FIX_CLIENT_BEGIN_STRING=FIX.4.4 ./scripts/local_fix_demo_client.sh start 500
+  ./scripts/local_fix_demo_client.sh stop
 
 EOF
 }

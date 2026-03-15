@@ -3,7 +3,7 @@
 # LLExSimulator — Docker Lifecycle Manager
 # =============================================================================
 # Usage:
-#   ./scripts/llexsim.sh <command> [options]
+#   ./scripts/local_llexsim.sh <command> [options]
 #
 # Commands:
 #   build       Build the Docker image (runs Gradle + Docker build)
@@ -104,7 +104,7 @@ wait_healthy() {
     done
     echo ""
     warn "Health check timed out after ${max_wait}s. Container may still be starting."
-    warn "Check logs with: ./scripts/llexsim.sh logs"
+    warn "Check logs with: ./scripts/local_llexsim.sh logs"
 }
 
 # ── Commands ──────────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ cmd_build() {
     # This produces the ONE canonical JAR used by all three consumers:
     #   • Docker image  (copied in step 2 below)
     #   • Local direct-java run
-    #   • Demo client   (fix-demo-client.sh)
+    #   • Demo client   (local_fix_demo_client.sh)
     # Gradle's incremental build means this is fast on subsequent runs when
     # nothing has changed.
     info "Compiling and packaging fat JAR (./gradlew shadowJar)..."
@@ -172,7 +172,7 @@ cmd_start() {
     echo -e "  ${BOLD}FIX Acceptor${RESET}       →  tcp://localhost:${FIX_PORT}"
     echo -e "  ${BOLD}Health check${RESET}       →  http://localhost:${WEB_PORT}/api/health"
     echo ""
-    info "Tail logs with: ./scripts/llexsim.sh logs"
+    info "Tail logs with: ./scripts/local_llexsim.sh logs"
 }
 
 cmd_stop() {
@@ -204,7 +204,7 @@ cmd_status() {
 
     if ! container_exists; then
         warn "Container '${CONTAINER_NAME}' does not exist."
-        echo "  Run: ./scripts/llexsim.sh start"
+        echo "  Run: ./scripts/local_llexsim.sh start"
         return 0
     fi
 
@@ -249,7 +249,7 @@ cmd_logs() {
     if [[ ! -f "${log_file}" ]]; then
         warn "Log file not found: ${log_file}"
         warn "The container may not have started yet, or the ./logs volume is not mounted."
-        warn "Try: ./scripts/llexsim.sh docker-logs"
+        warn "Try: ./scripts/local_llexsim.sh docker-logs"
         exit 1
     fi
     info "Tailing ${log_file} (Ctrl+C to exit)..."
@@ -261,7 +261,7 @@ cmd_docker_logs() {
     # console appender).  Useful during startup before the file is written.
     require_docker
     if ! container_exists; then
-        error "Container '${CONTAINER_NAME}' not found. Start with: ./scripts/llexsim.sh start"
+        error "Container '${CONTAINER_NAME}' not found. Start with: ./scripts/local_llexsim.sh start"
         exit 1
     fi
     info "Showing last ${LOG_LINES} lines from Docker stdout (Ctrl+C to exit)..."
@@ -327,7 +327,7 @@ cmd_fix_connect() {
         echo "  TargetCompID:  LLEXSIM"
     else
         error "Could not connect to FIX port ${FIX_PORT}. Is the simulator running?"
-        echo "  Run: ./scripts/llexsim.sh start"
+        echo "  Run: ./scripts/local_llexsim.sh start"
         exit 1
     fi
 }
@@ -338,7 +338,7 @@ cmd_help() {
 ${BOLD}${CYAN}LLExSimulator — Docker Lifecycle Manager${RESET}
 
 ${BOLD}Usage:${RESET}
-  ./scripts/llexsim.sh <command> [options]
+  ./scripts/local_llexsim.sh <command> [options]
 
 ${BOLD}Commands:${RESET}
   ${GREEN}build${RESET}        Build Docker image + host-side fat JAR (Gradle + Docker)
@@ -361,25 +361,25 @@ ${BOLD}Environment Variables:${RESET}
 
 ${BOLD}Examples:${RESET}
   # First-time setup
-  ./scripts/llexsim.sh build
-  ./scripts/llexsim.sh build --no-cache
-  ./scripts/llexsim.sh start
+  ./scripts/local_llexsim.sh build
+  ./scripts/local_llexsim.sh build --no-cache
+  ./scripts/local_llexsim.sh start
 
   # Full clean rebuild from scratch (purge + build + start)
-  ./scripts/llexsim.sh rebuild
-  ./scripts/llexsim.sh rebuild --no-cache
+  ./scripts/local_llexsim.sh rebuild
+  ./scripts/local_llexsim.sh rebuild --no-cache
 
   # Daily use
-  ./scripts/llexsim.sh status
-  ./scripts/llexsim.sh logs
-  ./scripts/llexsim.sh restart
+  ./scripts/local_llexsim.sh status
+  ./scripts/local_llexsim.sh logs
+  ./scripts/local_llexsim.sh restart
 
   # Override configuration at runtime
-  WEB_PORT=9090 ./scripts/llexsim.sh start
+  WEB_PORT=9090 ./scripts/local_llexsim.sh start
 
   # Full cleanup before a clean rebuild
-  ./scripts/llexsim.sh purge
-  ./scripts/llexsim.sh build && ./scripts/llexsim.sh start
+  ./scripts/local_llexsim.sh purge
+  ./scripts/local_llexsim.sh build && ./scripts/local_llexsim.sh start
 
 ${BOLD}Web UI:${RESET}
   http://localhost:${WEB_PORT}

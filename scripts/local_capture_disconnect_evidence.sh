@@ -3,7 +3,7 @@
 # LLExSimulator — Disconnect Evidence Capture Helper
 # =============================================================================
 # Usage:
-#   ./scripts/capture-disconnect-evidence.sh [output-dir]
+#   ./scripts/local_capture_disconnect_evidence.sh [output-dir]
 #
 # Environment overrides:
 #   EVIDENCE_HOST=127.0.0.1
@@ -42,7 +42,7 @@ usage() {
 ${BOLD}${CYAN}LLExSimulator disconnect evidence capture helper${RESET}
 
 ${BOLD}Usage:${RESET}
-  ./scripts/capture-disconnect-evidence.sh [output-dir]
+  ./scripts/local_capture_disconnect_evidence.sh [output-dir]
 
 ${BOLD}Environment overrides:${RESET}
   EVIDENCE_HOST=127.0.0.1

@@ -1,17 +1,17 @@
 #!/bin/bash
 # =============================================================================
-# clean-ledgers.sh — Remove local FIX/Aeron ledger/state directories only
+# local_clean_ledgers.sh — Remove local FIX/Aeron ledger/state directories only
 # =============================================================================
 # Usage:
-#   ./scripts/clean-ledgers.sh [--dry-run]
+#   ./scripts/local_clean_ledgers.sh [--dry-run]
 #
 # Steps
-#   1. stop-all.sh              — stop any background demo client and simulator
+#   1. local_stop_all.sh        — stop any background demo client and simulator
 #   2. remove QuickFIX/J client ledger dirs (messages/store)
 #   3. remove configured Artio log/state dir
 #   4. remove configured Aeron dir and sibling archive dir
 #
-# This script is narrower than llexsim.sh clean: it preserves normal logs and
+# This script is narrower than local_llexsim.sh clean: it preserves normal logs and
 # build output, and only removes runtime ledger/state paths.
 # =============================================================================
 
@@ -19,7 +19,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="${PROJECT_ROOT}/scripts"
-STOP_ALL_SCRIPT="${SCRIPTS_DIR}/stop-all.sh"
+STOP_ALL_SCRIPT="${SCRIPTS_DIR}/local_stop_all.sh"
 BASH_BIN="/bin/bash"
 LOCAL_CONFIG_PATH="${PROJECT_ROOT}/config/simulator.properties"
 CLASSPATH_CONFIG_PATH="${PROJECT_ROOT}/src/main/resources/simulator.properties"
@@ -45,7 +45,7 @@ usage() {
 ${BOLD}${CYAN}Ledger cleanup helper${RESET}
 
 ${BOLD}Usage:${RESET}
-  ./scripts/clean-ledgers.sh [--dry-run]
+  ./scripts/local_clean_ledgers.sh [--dry-run]
 
 ${BOLD}Behavior:${RESET}
   - Stops the background demo client and simulator first

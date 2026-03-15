@@ -175,8 +175,8 @@ git clone git@github.com:legen848dary/LLExSimulator.git
 cd LLExSimulator
 
 # 2. Build and start with Docker (recommended)
-./scripts/llexsim.sh build
-./scripts/llexsim.sh start
+./scripts/local_llexsim.sh build
+./scripts/local_llexsim.sh start
 
 # 3. Open the Web UI
 open http://localhost:8080
@@ -201,7 +201,7 @@ curl http://localhost:8080/api/health
 ### Docker image only
 
 ```bash
-./scripts/llexsim.sh build
+./scripts/local_llexsim.sh build
 # or directly:
 docker compose build
 ```
@@ -248,7 +248,7 @@ java \
 All Docker lifecycle operations are handled by a single script:
 
 ```bash
-./scripts/llexsim.sh <command>
+./scripts/local_llexsim.sh <command>
 ```
 
 ### Management Script Reference
@@ -270,28 +270,28 @@ All Docker lifecycle operations are handled by a single script:
 
 ```bash
 # ── First-time setup ─────────────────────────────────────────────────────────
-./scripts/llexsim.sh build          # Build image (~3–5 min first time)
-./scripts/llexsim.sh start          # Start and wait for healthy
+./scripts/local_llexsim.sh build          # Build image (~3–5 min first time)
+./scripts/local_llexsim.sh start          # Start and wait for healthy
 
 # ── Daily operations ─────────────────────────────────────────────────────────
-./scripts/llexsim.sh status         # Check health + resource usage
-./scripts/llexsim.sh logs           # Follow live logs
-./scripts/llexsim.sh restart        # Apply config change without full rebuild
-./scripts/stop-all.sh               # Stop both the demo client and simulator
-./scripts/clean-ledgers.sh          # Remove FIX/Aeron ledger state without deleting normal logs
+./scripts/local_llexsim.sh status         # Check health + resource usage
+./scripts/local_llexsim.sh logs           # Follow live logs
+./scripts/local_llexsim.sh restart        # Apply config change without full rebuild
+./scripts/local_stop_all.sh               # Stop both the demo client and simulator
+./scripts/local_clean_ledgers.sh          # Remove FIX/Aeron ledger state without deleting normal logs
 
 # ── Testing FIX connectivity ─────────────────────────────────────────────────
-./scripts/llexsim.sh fix-connect    # Verify port 9880 is open
+./scripts/local_llexsim.sh fix-connect    # Verify port 9880 is open
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
-./scripts/llexsim.sh clean          # Remove containers + volumes (keep image)
-./scripts/llexsim.sh purge          # Full wipe; next start will rebuild image
+./scripts/local_llexsim.sh clean          # Remove containers + volumes (keep image)
+./scripts/local_llexsim.sh purge          # Full wipe; next start will rebuild image
 
 # ── Override ports ───────────────────────────────────────────────────────────
-WEB_PORT=9090 FIX_PORT=9999 ./scripts/llexsim.sh start
+WEB_PORT=9090 FIX_PORT=9999 ./scripts/local_llexsim.sh start
 
 # ── Show more log lines ───────────────────────────────────────────────────────
-LOG_LINES=500 ./scripts/llexsim.sh logs
+LOG_LINES=500 ./scripts/local_llexsim.sh logs
 ```
 
 ### Ports
@@ -305,9 +305,9 @@ LOG_LINES=500 ./scripts/llexsim.sh logs
 
 This repository includes three helper scripts for a brand-new Ubuntu droplet:
 
-- [`scripts/setup_droplet_for_docker.sh`](scripts/setup_droplet_for_docker.sh) — install Docker and baseline deployment tooling
-- [`scripts/release_to_droplet.sh`](scripts/release_to_droplet.sh) — rebuild locally and deploy the Docker image remotely
-- [`scripts/setup_https_for_hostname.sh`](scripts/setup_https_for_hostname.sh) — configure Nginx + Certbot for a public hostname
+- [`scripts/remote_setup_droplet_for_docker.sh`](scripts/remote_setup_droplet_for_docker.sh) — install Docker and baseline deployment tooling
+- [`scripts/remote_release_to_droplet.sh`](scripts/remote_release_to_droplet.sh) — rebuild locally and deploy the Docker image remotely
+- [`scripts/remote_setup_https_for_hostname.sh`](scripts/remote_setup_https_for_hostname.sh) — configure Nginx + Certbot for a public hostname
 
 All three scripts use the same SSH argument style:
 
@@ -320,7 +320,7 @@ All three scripts use the same SSH argument style:
 Run this once on a fresh Ubuntu droplet:
 
 ```bash
-./scripts/setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root
+./scripts/remote_setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root
 ```
 
 What it does:
@@ -338,8 +338,8 @@ Security defaults:
 If you intentionally want a public firewall rule later, you can opt in during provisioning:
 
 ```bash
-./scripts/setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --open-web-port
-./scripts/setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --open-fix-port
+./scripts/remote_setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --open-web-port
+./scripts/remote_setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --open-fix-port
 ```
 
 #### Step 2 — Build locally and deploy the simulator
@@ -347,7 +347,7 @@ If you intentionally want a public firewall rule later, you can opt in during pr
 From your local machine, rebuild and deploy to the droplet:
 
 ```bash
-./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
+./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
 ```
 
 What this script does:
@@ -372,15 +372,15 @@ On a `2 vCPU / 2 GB` droplet, the default `CPUSET_MODE=auto` now pins the simula
 If you need to override that explicitly, use for example:
 
 ```bash
-./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --cpuset 0
-./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --cpuset none
+./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --cpuset 0
+./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --cpuset none
 ```
 
 If you explicitly want public Docker port publishing later, the release script supports opt-in flags:
 
 ```bash
-./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --public-web-port
-./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --public-fix-port
+./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --public-web-port
+./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --public-fix-port
 ```
 
 #### Step 3 — Point your hostname at the droplet
@@ -402,7 +402,7 @@ Important routing model:
 After the app is deployed and the DNS `A` record is live, configure Nginx + Certbot:
 
 ```bash
-./scripts/setup_https_for_hostname.sh \
+./scripts/remote_setup_https_for_hostname.sh \
   203.0.113.10 \
   ~/.ssh/<your-private-key> \
   root \
@@ -427,7 +427,7 @@ https://sim.example.com
 If you want the script to remove an old firewall rule that exposed port `8080`, use:
 
 ```bash
-./scripts/setup_https_for_hostname.sh \
+./scripts/remote_setup_https_for_hostname.sh \
   203.0.113.10 \
   ~/.ssh/<your-private-key> \
   root \
@@ -449,7 +449,7 @@ ssh -i ~/.ssh/<your-private-key> -N -L 9880:127.0.0.1:9880 root@203.0.113.10
 Then, in another terminal, run the demo client against your local forwarded port:
 
 ```bash
-FIX_CLIENT_HOST=localhost FIX_CLIENT_PORT=9880 ./scripts/fix-demo-client.sh run 100
+FIX_CLIENT_HOST=localhost FIX_CLIENT_PORT=9880 ./scripts/local_fix_demo_client.sh run 100
 ```
 
 #### Step 6 — Run the demo FIX client on the droplet only when needed
@@ -515,9 +515,9 @@ Because the demo client runs in the same Compose network as the simulator, it co
 All droplet scripts support a dry-run mode so you can inspect the remote commands before executing them:
 
 ```bash
-./scripts/setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
-./scripts/release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
-./scripts/setup_https_for_hostname.sh 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --dry-run
+./scripts/remote_setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
+./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
+./scripts/remote_setup_https_for_hostname.sh 203.0.113.10 ~/.ssh/<your-private-key> root --fqdn sim.example.com --dry-run
 ```
 
 ---
@@ -529,26 +529,26 @@ It connects to the simulator and continuously sends `NewOrderSingle` messages at
 fixed rate until stopped.
 
 ```bash
-./scripts/fix-demo-client.sh start        # default: 100 NewOrderSingles / second
-./scripts/fix-demo-client.sh start 500    # send 500 NOS / second in background
-./scripts/fix-demo-client.sh logs         # tail client progress
-./scripts/fix-demo-client.sh stop         # stop the background client
-./scripts/stop-all.sh                     # stop both the background client and Docker simulator
-./scripts/clean-ledgers.sh                # clear client/session ledgers and runtime state
+./scripts/local_fix_demo_client.sh start        # default: 100 NewOrderSingles / second
+./scripts/local_fix_demo_client.sh start 500    # send 500 NOS / second in background
+./scripts/local_fix_demo_client.sh logs         # tail client progress
+./scripts/local_fix_demo_client.sh stop         # stop the background client
+./scripts/local_stop_all.sh                     # stop both the background client and Docker simulator
+./scripts/local_clean_ledgers.sh                # clear client/session ledgers and runtime state
 ```
 
 Local helpers also honor `FIX_DEMO_RATE` when no explicit positional rate is passed:
 
 ```bash
-FIX_DEMO_RATE=500 ./scripts/fix-demo-client.sh start
-FIX_DEMO_RATE=500 ./scripts/clean-and-run.sh
-FIX_DEMO_RATE=500 ./scripts/rebuild-and-run.sh
+FIX_DEMO_RATE=500 ./scripts/local_fix_demo_client.sh start
+FIX_DEMO_RATE=500 ./scripts/local_clean_and_run.sh
+FIX_DEMO_RATE=500 ./scripts/local_rebuild_and_run.sh
 ```
 
 Run it in the foreground if you want to see connection and progress messages live:
 
 ```bash
-./scripts/fix-demo-client.sh run 250
+./scripts/local_fix_demo_client.sh run 250
 ```
 
 Optional environment overrides:
@@ -560,14 +560,14 @@ FIX_CLIENT_TARGET_COMP_ID=LLEXSIM \
 FIX_CLIENT_SYMBOL=MSFT \
 FIX_CLIENT_ORDER_QTY=250 \
 FIX_CLIENT_PRICE=412.15 \
-./scripts/fix-demo-client.sh start 1000
+./scripts/local_fix_demo_client.sh start 1000
 ```
 
 The launcher now injects the required Java `--add-opens` flags automatically for Aeron/Agrona.
 If you need to override the demo client's Aeron directory explicitly, set:
 
 ```bash
-FIX_CLIENT_AERON_DIR=/tmp/aeron-llexsim ./scripts/fix-demo-client.sh run 100
+FIX_CLIENT_AERON_DIR=/tmp/aeron-llexsim ./scripts/local_fix_demo_client.sh run 100
 ```
 
 The demo client writes logs under `logs/fix-demo-client/` and keeps its QuickFIX/J
@@ -580,7 +580,7 @@ session logs under `logs/fix-demo-client/quickfixj/`.
 When a disconnect happens, capture the simulator and client evidence immediately:
 
 ```bash
-./scripts/capture-disconnect-evidence.sh
+./scripts/local_capture_disconnect_evidence.sh
 ```
 
 This writes a timestamped bundle under `logs/disconnect-evidence/` containing:
@@ -596,13 +596,13 @@ This writes a timestamped bundle under `logs/disconnect-evidence/` containing:
 Useful overrides:
 
 ```bash
-EVIDENCE_WEB_PORT=9090 EVIDENCE_LIMIT=20 EVIDENCE_LOG_LINES=400 ./scripts/capture-disconnect-evidence.sh
+EVIDENCE_WEB_PORT=9090 EVIDENCE_LIMIT=20 EVIDENCE_LOG_LINES=400 ./scripts/local_capture_disconnect_evidence.sh
 ```
 
 If you want a custom output directory:
 
 ```bash
-./scripts/capture-disconnect-evidence.sh /tmp/llex-disconnect-$(date +%Y%m%d-%H%M%S)
+./scripts/local_capture_disconnect_evidence.sh /tmp/llex-disconnect-$(date +%Y%m%d-%H%M%S)
 ```
 
 The first files to share for diagnosis are:
@@ -651,7 +651,7 @@ Mount a custom config without rebuilding:
 
 ```bash
 # Edit ./config/simulator.properties, then:
-./scripts/llexsim.sh restart
+./scripts/local_llexsim.sh restart
 ```
 
 The `docker-compose.yml` mounts `./config/` as a read-only volume inside the container.
@@ -834,7 +834,7 @@ TargetCompID=MY_TEST_CLIENT
 DataDictionary=FIX44.xml
 ```
 
-Then `./scripts/llexsim.sh restart`.
+Then `./scripts/local_llexsim.sh restart`.
 
 ### Supported FIX Message Types
 
@@ -897,10 +897,14 @@ LLExSimulator/
 ├── docker-compose.yml                  # Docker Compose with ZGC JVM tuning + CPU pinning
 ├── Dockerfile                          # Multi-stage: Gradle build → lean JRE runtime
 ├── scripts/
-│   ├── llexsim.sh                      # Docker lifecycle manager (start/stop/restart/clean/purge...)
-│   ├── fix-demo-client.sh              # Demo FIX client lifecycle helper
-│   ├── stop-all.sh                     # Convenience wrapper: stop demo client + simulator together
-│   └── clean-ledgers.sh                # Removes FIX/Aeron ledger/state directories only
+│   ├── local_llexsim.sh                # Local Docker lifecycle manager (start/stop/restart/clean/purge...)
+│   ├── local_fix_demo_client.sh        # Local demo FIX client lifecycle helper
+│   ├── local_stop_all.sh               # Convenience wrapper: stop demo client + simulator together
+│   ├── local_clean_ledgers.sh          # Removes FIX/Aeron ledger/state directories only
+│   ├── remote_release_to_droplet.sh    # Build locally and deploy remotely to a droplet
+│   ├── remote_render_release_remote_script.py # Generates the remote deploy shell script
+│   ├── remote_setup_droplet_for_docker.sh # Bootstrap a droplet with Docker
+│   └── remote_setup_https_for_hostname.sh # Configure Nginx + Certbot on the droplet
 ├── config/
 │   └── simulator.properties            # Override config (mounted read-only into container)
 └── src/main/

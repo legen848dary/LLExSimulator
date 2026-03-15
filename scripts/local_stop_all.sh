@@ -1,13 +1,13 @@
 #!/bin/bash
 # =============================================================================
-# stop-all.sh — Stop the demo client and Dockerized simulator together
+# local_stop_all.sh — Stop the demo client and Dockerized simulator together
 # =============================================================================
 # Usage:
-#   ./scripts/stop-all.sh
+#   ./scripts/local_stop_all.sh
 #
 # Steps
-#   1. fix-demo-client.sh stop  — stop any background demo FIX client
-#   2. llexsim.sh stop          — gracefully stop the Dockerized simulator
+#   1. local_fix_demo_client.sh stop  — stop any background demo FIX client
+#   2. local_llexsim.sh stop          — gracefully stop the Dockerized simulator
 #
 # The script is intentionally idempotent: if one or both targets are already
 # stopped, it reports that state and still exits successfully.
@@ -16,8 +16,8 @@
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLIENT_SCRIPT="${SCRIPTS_DIR}/fix-demo-client.sh"
-SIMULATOR_SCRIPT="${SCRIPTS_DIR}/llexsim.sh"
+CLIENT_SCRIPT="${SCRIPTS_DIR}/local_fix_demo_client.sh"
+SIMULATOR_SCRIPT="${SCRIPTS_DIR}/local_llexsim.sh"
 BASH_BIN="/bin/bash"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
