@@ -24,11 +24,16 @@ public final class OrderSessionRegistry {
     private final Long2ObjectHashMap<FixConnection> idToConnection = new Long2ObjectHashMap<>();
     private final AtomicLong                        counter        = new AtomicLong(0L);
     private final Deque<SessionDiagnosticsSnapshot> recentDisconnects = new ArrayDeque<>(RECENT_DISCONNECT_LIMIT);
+    private final boolean benchmarkModeEnabled;
+
+    public OrderSessionRegistry(boolean benchmarkModeEnabled) {
+        this.benchmarkModeEnabled = benchmarkModeEnabled;
+    }
 
     /** Assigns a new numeric ID and registers the Artio session. */
     public synchronized FixConnection register(Session session, SessionWriter writer) {
         long id = counter.incrementAndGet();
-        FixConnection connection = new FixConnection(id, session, writer);
+        FixConnection connection = new FixConnection(id, session, writer, benchmarkModeEnabled);
         idToConnection.put(id, connection);
         return connection;
     }

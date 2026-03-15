@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class FixConnection {
 
     private static final int RECENT_EVENT_LIMIT = 32;
+    private static final long MESSAGE_TYPE_NONE = Long.MIN_VALUE;
 
     private final long connectionId;
     private final long sessionId;
@@ -24,6 +25,7 @@ public final class FixConnection {
     private final String senderCompId;
     private final String targetCompId;
     private final long connectedAtEpochMs;
+    private final boolean benchmarkModeEnabled;
     private final Object diagnosticsLock = new Object();
     private final Deque<String> recentEvents = new ArrayDeque<>(RECENT_EVENT_LIMIT);
 
@@ -47,11 +49,11 @@ public final class FixConnection {
     private final AtomicLong timeoutCount = new AtomicLong();
     private final AtomicLong disconnectCount = new AtomicLong();
     private final AtomicLong slowStatusChangeCount = new AtomicLong();
-    private volatile String lastInboundMsgType;
+    private volatile long lastInboundMsgTypeCode;
     private volatile String lastOutboundEvent;
     private volatile String lastDisconnectReason;
 
-    FixConnection(long connectionId, Session session, SessionWriter writer) {
+    FixConnection(long connectionId, Session session, SessionWriter writer, boolean benchmarkModeEnabled) {
         long now = System.currentTimeMillis();
         CompositeKey key = session.compositeKey();
         this.connectionId = connectionId;
@@ -61,6 +63,7 @@ public final class FixConnection {
         this.targetCompId = key != null ? key.remoteCompId() : "UNKNOWN";
         this.sessionKey = beginString + ':' + senderCompId + "->" + targetCompId + '#' + sessionId;
         this.connectedAtEpochMs = now;
+        this.benchmarkModeEnabled = benchmarkModeEnabled;
         this.session = session;
         this.writer = writer;
         this.sequenceIndex = session.sequenceIndex();
@@ -68,7 +71,7 @@ public final class FixConnection {
         this.lastSentMsgSeqNum = session.lastSentMsgSeqNum();
         this.loggedOn = true;
         this.lastLogonAtEpochMs = now;
-        this.lastInboundMsgType = "NONE";
+        this.lastInboundMsgTypeCode = MESSAGE_TYPE_NONE;
         this.lastOutboundEvent = "NONE";
         this.lastDisconnectReason = "NONE";
         recordEvent("SESSION_ACQUIRED connId=" + connectionId + " seqIdx=" + sequenceIndex +
@@ -184,7 +187,7 @@ public final class FixConnection {
     }
 
     public String lastInboundMsgType() {
-        return lastInboundMsgType;
+        return printableMessageType(lastInboundMsgTypeCode);
     }
 
     public String lastOutboundEvent() {
@@ -223,7 +226,7 @@ public final class FixConnection {
                 disconnectCount.get(),
                 slowStatusChangeCount.get(),
                 slowConsumer,
-                lastInboundMsgType,
+                printableMessageType(lastInboundMsgTypeCode),
                 lastOutboundEvent,
                 lastDisconnectReason,
                 lastLibraryPosition,
@@ -269,11 +272,15 @@ public final class FixConnection {
 
     public void onInboundMessage(Session session, int sequenceIndex, long messageType, long position) {
         this.sequenceIndex = sequenceIndex;
-        this.lastInboundAtEpochMs = System.currentTimeMillis();
+        if (!benchmarkModeEnabled) {
+            this.lastInboundAtEpochMs = System.currentTimeMillis();
+        }
         this.inboundMessageCount.incrementAndGet();
         this.lastLibraryPosition = position;
-        this.lastInboundMsgType = printableMessageType(messageType);
-        refreshSessionSnapshot(session);
+        this.lastInboundMsgTypeCode = messageType;
+        if (!benchmarkModeEnabled) {
+            refreshSessionSnapshot(session);
+        }
     }
 
     public void onTimeout(Session session) {
@@ -302,10 +309,14 @@ public final class FixConnection {
     }
 
     public void onOutboundSendSuccess(Session session, String eventName) {
-        this.lastOutboundAtEpochMs = System.currentTimeMillis();
+        if (!benchmarkModeEnabled) {
+            this.lastOutboundAtEpochMs = System.currentTimeMillis();
+        }
         this.outboundSendSuccessCount.incrementAndGet();
         this.lastOutboundEvent = eventName;
-        refreshSessionSnapshot(session);
+        if (!benchmarkModeEnabled) {
+            refreshSessionSnapshot(session);
+        }
     }
 
     public void onOutboundBackpressure(Session session, String eventName, long result) {
@@ -345,6 +356,9 @@ public final class FixConnection {
     }
 
     private static String printableMessageType(long messageType) {
+        if (messageType == MESSAGE_TYPE_NONE) {
+            return "NONE";
+        }
         if (messageType >= 32 && messageType <= 126) {
             return Character.toString((char)messageType);
         }

@@ -23,6 +23,10 @@ import java.util.concurrent.locks.LockSupport;
 public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionReportHandler.class);
+    private static final String EVENT_PARTIAL_FILL = "PARTIAL_FILL/PARTIALLY_FILLED";
+    private static final String EVENT_FILL = "FILL/FILLED";
+    private static final String EVENT_REJECT = "REJECTED/REJECTED";
+    private static final String EVENT_CANCEL = "CANCELED/CANCELED";
 
     private final OrderSessionRegistry sessionRegistry;
     private final OrderRepository      orderRepository;
@@ -110,7 +114,7 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
             long fillQty = Math.max(0L, orderQty * fillPct / 10_000L);
             sendFill(corrId, sessionId, clOrdId, symbol, side,
                     orderQty, price, fillQty, fillPrice != 0 ? fillPrice : price,
-                    behavior, false);
+                    false);
             sendCancel(corrId, sessionId, clOrdId, symbol, side, orderQty, price, fillQty);
             return;
         }
@@ -134,14 +138,13 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
 
             sendFill(corrId, sessionId, clOrdId, symbol, side,
                     orderQty, price, fillQty, fillPrice != 0 ? fillPrice : price,
-                    behavior, terminalAction);
+                    terminalAction);
         }
     }
 
     private void sendFill(long corrId, long sessionId, byte[] clOrdId, byte[] symbol,
                           com.llexsimulator.sbe.OrderSide side,
                           long orderQty, long price, long fillQty, long fillPrice,
-                          FillBehaviorType behavior,
                           boolean terminalAction) {
         OrderState state = orderRepository.get(corrId);
         FixConnection connection = sessionRegistry.get(sessionId);
@@ -243,7 +246,7 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
 
         outboundSender.enqueueExecutionReport(
                 connection,
-                execType.name() + '/' + ordStatus.name(),
+                outboundEvent(execType, ordStatus),
                 clOrdId, clOrdIdLength,
                 orderId, orderIdLength,
                 execId, execIdLength,
@@ -299,6 +302,22 @@ public final class ExecutionReportHandler implements EventHandler<OrderEvent> {
             end--;
         }
         return end;
+    }
+
+    private static String outboundEvent(ExecType execType, OrdStatus ordStatus) {
+        return switch (execType) {
+            case PARTIAL_FILL -> EVENT_PARTIAL_FILL;
+            case FILL -> EVENT_FILL;
+            case REJECTED -> EVENT_REJECT;
+            case CANCELED -> EVENT_CANCEL;
+            default -> switch (ordStatus) {
+                case PARTIALLY_FILLED -> EVENT_PARTIAL_FILL;
+                case FILLED -> EVENT_FILL;
+                case REJECTED -> EVENT_REJECT;
+                case CANCELED -> EVENT_CANCEL;
+                default -> EVENT_FILL;
+            };
+        };
     }
 
     private static final class SendContext {

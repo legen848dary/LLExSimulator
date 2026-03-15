@@ -31,6 +31,10 @@ createApp({
         <span class="text-xs text-slate-400 font-mono">FIX Exchange Simulator</span>
       </div>
       <div class="flex items-center gap-4 flex-wrap justify-end">
+        <a href="/reports"
+           class="text-xs font-semibold text-slate-300 hover:text-white border border-dark-600 hover:border-brand-500 rounded-full px-3 py-1.5 transition-colors">
+          Reports
+        </a>
         <span :class="wsConnected ? 'text-brand-500' : 'text-red-400'" class="text-xs font-mono flex items-center gap-1">
           <span :class="wsConnected ? 'bg-brand-500' : 'bg-red-400'" class="w-2 h-2 rounded-full inline-block"></span>
           {{ wsConnected ? 'WS LIVE' : 'WS RETRYING' }}

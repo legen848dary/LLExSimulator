@@ -8,7 +8,7 @@ import uk.co.real_logic.artio.builder.ExecutionReportEncoder;
 import uk.co.real_logic.artio.fields.UtcTimestampEncoder;
 import uk.co.real_logic.artio.session.Session;
 
-import java.util.Arrays;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 /**
  * Bridges outbound FIX sends from producer threads onto the Artio library poller thread.
@@ -17,11 +17,23 @@ public final class FixOutboundSender {
 
     private static final Logger log = LoggerFactory.getLogger(FixOutboundSender.class);
     private static final int MAX_DRAIN_PER_CYCLE = 1024;
+    private static final int INITIAL_REPORT_POOL_SIZE = 4096;
+    private static final int MAX_CL_ORD_ID_LENGTH = 36;
+    private static final int MAX_ORDER_ID_LENGTH = 36;
+    private static final int MAX_EXEC_ID_LENGTH = 36;
+    private static final int MAX_SYMBOL_LENGTH = 16;
 
     private final ManyToOneConcurrentLinkedQueue<PendingExecutionReport> queue =
             new ManyToOneConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedDeque<PendingExecutionReport> pool = new ConcurrentLinkedDeque<>();
     private final ExecutionReportEncoder executionReport = new ExecutionReportEncoder();
     private final UtcTimestampEncoder timestampEncoder = new UtcTimestampEncoder();
+
+    public FixOutboundSender() {
+        for (int i = 0; i < INITIAL_REPORT_POOL_SIZE; i++) {
+            pool.offerFirst(new PendingExecutionReport());
+        }
+    }
 
     public void enqueueExecutionReport(
             FixConnection connection,
@@ -34,17 +46,22 @@ public final class FixOutboundSender {
             long cumQty, long leavesQty,
             char execType, char ordStatus,
             int ordRejReason) {
-        queue.add(new PendingExecutionReport(
+        PendingExecutionReport pending = pool.pollFirst();
+        if (pending == null) {
+            pending = new PendingExecutionReport();
+        }
+        pending.init(
                 connection,
                 outboundEvent,
-                Arrays.copyOf(clOrdId, clOrdIdLength), clOrdIdLength,
-                Arrays.copyOf(orderId, orderIdLength), orderIdLength,
-                Arrays.copyOf(execId, execIdLength), execIdLength,
-                Arrays.copyOf(symbol, symbolLength), symbolLength,
+                clOrdId, clOrdIdLength,
+                orderId, orderIdLength,
+                execId, execIdLength,
+                symbol, symbolLength,
                 side, orderQty, price, lastQty, lastPx,
                 cumQty, leavesQty,
                 execType, ordStatus,
-                ordRejReason));
+                ordRejReason);
+        queue.add(pending);
     }
 
     public int drain() {
@@ -72,18 +89,20 @@ public final class FixOutboundSender {
                 log.warn("Failed to send ExecutionReport: session={} result={}",
                         pending.connection.sessionKey(), result);
             }
+            recycle(pending);
             workCount++;
         }
         return workCount;
     }
 
     private long trySend(PendingExecutionReport pending) {
-        synchronized (pending.connection) {
-            Session session = pending.connection.session();
+        FixConnection connection = pending.connection;
+        synchronized (connection) {
+            Session session = connection.session();
             if (session == null || !session.isActive()) {
-                pending.connection.onOutboundSendFailure(session, pending.outboundEvent, Long.MIN_VALUE);
+                connection.onOutboundSendFailure(session, pending.outboundEvent, Long.MIN_VALUE);
                 log.warn("Cannot send ExecutionReport on inactive session={} state sessionPresent={}",
-                        pending.connection.sessionKey(), session != null);
+                        connection.sessionKey(), session != null);
                 return Long.MIN_VALUE;
             }
 
@@ -119,29 +138,35 @@ public final class FixOutboundSender {
         }
     }
 
-    private static final class PendingExecutionReport {
-        private final FixConnection connection;
-        private final String outboundEvent;
-        private final byte[] clOrdId;
-        private final int clOrdIdLength;
-        private final byte[] orderId;
-        private final int orderIdLength;
-        private final byte[] execId;
-        private final int execIdLength;
-        private final byte[] symbol;
-        private final int symbolLength;
-        private final char side;
-        private final long orderQty;
-        private final long price;
-        private final long lastQty;
-        private final long lastPx;
-        private final long cumQty;
-        private final long leavesQty;
-        private final char execType;
-        private final char ordStatus;
-        private final int ordRejReason;
+    private void recycle(PendingExecutionReport pending) {
+        pending.reset();
+        pool.offerFirst(pending);
+    }
 
-        private PendingExecutionReport(
+    private static final class PendingExecutionReport {
+        private final byte[] clOrdId = new byte[MAX_CL_ORD_ID_LENGTH];
+        private final byte[] orderId = new byte[MAX_ORDER_ID_LENGTH];
+        private final byte[] execId = new byte[MAX_EXEC_ID_LENGTH];
+        private final byte[] symbol = new byte[MAX_SYMBOL_LENGTH];
+
+        private FixConnection connection;
+        private String outboundEvent;
+        private int clOrdIdLength;
+        private int orderIdLength;
+        private int execIdLength;
+        private int symbolLength;
+        private char side;
+        private long orderQty;
+        private long price;
+        private long lastQty;
+        private long lastPx;
+        private long cumQty;
+        private long leavesQty;
+        private char execType;
+        private char ordStatus;
+        private int ordRejReason;
+
+        private void init(
                 FixConnection connection,
                 String outboundEvent,
                 byte[] clOrdId, int clOrdIdLength,
@@ -154,14 +179,10 @@ public final class FixOutboundSender {
                 int ordRejReason) {
             this.connection = connection;
             this.outboundEvent = outboundEvent;
-            this.clOrdId = clOrdId;
-            this.clOrdIdLength = clOrdIdLength;
-            this.orderId = orderId;
-            this.orderIdLength = orderIdLength;
-            this.execId = execId;
-            this.execIdLength = execIdLength;
-            this.symbol = symbol;
-            this.symbolLength = symbolLength;
+            this.clOrdIdLength = copyBytes(clOrdId, clOrdIdLength, this.clOrdId);
+            this.orderIdLength = copyBytes(orderId, orderIdLength, this.orderId);
+            this.execIdLength = copyBytes(execId, execIdLength, this.execId);
+            this.symbolLength = copyBytes(symbol, symbolLength, this.symbol);
             this.side = side;
             this.orderQty = orderQty;
             this.price = price;
@@ -172,6 +193,33 @@ public final class FixOutboundSender {
             this.execType = execType;
             this.ordStatus = ordStatus;
             this.ordRejReason = ordRejReason;
+        }
+
+        private void reset() {
+            connection = null;
+            outboundEvent = null;
+            clOrdIdLength = 0;
+            orderIdLength = 0;
+            execIdLength = 0;
+            symbolLength = 0;
+            side = 0;
+            orderQty = 0L;
+            price = 0L;
+            lastQty = 0L;
+            lastPx = 0L;
+            cumQty = 0L;
+            leavesQty = 0L;
+            execType = 0;
+            ordStatus = 0;
+            ordRejReason = 0;
+        }
+
+        private static int copyBytes(byte[] source, int requestedLength, byte[] target) {
+            int safeLength = Math.max(0, Math.min(requestedLength, target.length));
+            if (safeLength > 0) {
+                System.arraycopy(source, 0, target, 0, safeLength);
+            }
+            return safeLength;
         }
     }
 }

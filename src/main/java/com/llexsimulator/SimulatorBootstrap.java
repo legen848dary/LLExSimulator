@@ -74,7 +74,7 @@ public final class SimulatorBootstrap {
         profileManager = new FillProfileManager();
 
         // 6 — Disruptor pipeline
-        OrderSessionRegistry sessionRegistry = new OrderSessionRegistry();
+        OrderSessionRegistry sessionRegistry = new OrderSessionRegistry(config.benchmarkModeEnabled());
         FixOutboundSender outboundSender = new FixOutboundSender();
 
         ValidationHandler     validationHandler     = new ValidationHandler();

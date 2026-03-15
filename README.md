@@ -656,6 +656,30 @@ The `docker-compose.yml` mounts `./config/` as a read-only volume inside the con
 
 For lower-noise latency runs, set `benchmark.mode.enabled=true` in `./config/simulator.properties` and restart the simulator. This keeps the REST/health endpoints available but disables the live Aeron/WebSocket metrics fan-out used by the GUI.
 
+Convenience benchmark runners are also available:
+
+```bash
+./scripts/run_benchmark_local.sh 500 30
+./scripts/run_benchmark_local.sh --build --rate 1000 --duration 60
+
+# Run on the droplet after deployment (from /opt/llexsimulator)
+./scripts/run_benchmark_droplet.sh 500 30
+```
+
+Each benchmark run now saves a timestamped artifact bundle under `logs/benchmark-reports/<timestamp>/` including:
+
+- `health.json`
+- `statistics.json`
+- `docker-stats.txt`
+- simulator/client log tails
+- `report.html` — a colorful self-contained HTML summary report
+
+When the simulator web app is running, you can also browse generated reports at:
+
+```text
+http://localhost:8080/reports
+```
+
 ---
 
 ## REST API Reference

@@ -31,6 +31,9 @@ LOCAL_FIX_DEMO_HELPER_FILES=(
     "${SCRIPTS_DIR}/fix_demo_client_common.sh"
     "${SCRIPTS_DIR}/fix_demo_client_start.sh"
     "${SCRIPTS_DIR}/fix_demo_client_stop.sh"
+    "${SCRIPTS_DIR}/benchmark_common.sh"
+    "${SCRIPTS_DIR}/render_benchmark_report.py"
+    "${SCRIPTS_DIR}/run_benchmark_droplet.sh"
 )
 
 DROPLET_HOST=""

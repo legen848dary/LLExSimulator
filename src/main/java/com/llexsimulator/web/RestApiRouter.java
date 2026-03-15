@@ -28,6 +28,7 @@ public final class RestApiRouter {
         StatisticsHandler  statsHandler     = new StatisticsHandler(registry, profileManager, mapper);
         SessionHandler     sessionHandler   = new SessionHandler(sessionRegistry, mapper);
         HealthHandler      healthHandler    = new HealthHandler(sessionRegistry, pipeline);
+        BenchmarkReportsHandler benchmarkReportsHandler = new BenchmarkReportsHandler();
 
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());
@@ -49,6 +50,10 @@ public final class RestApiRouter {
         router.get("/api/sessions").handler(sessionHandler.list());
         router.get("/api/sessions/recent-disconnects").handler(sessionHandler.recentDisconnects());
         router.delete("/api/sessions/:id").handler(sessionHandler.disconnect());
+
+        // ── Benchmark Reports ──────────────────────────────────────────────────
+        router.get("/reports").handler(benchmarkReportsHandler.index());
+        router.get("/reports/:runId").handler(benchmarkReportsHandler.show());
 
         // ── Static SPA (Vue.js 3 + Tailwind) ─────────────────────────────────
         router.route("/*").handler(StaticHandler.create("web"));
