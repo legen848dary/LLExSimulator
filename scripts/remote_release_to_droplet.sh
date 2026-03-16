@@ -25,6 +25,8 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="${PROJECT_ROOT}/scripts"
 BUILD_SCRIPT="${SCRIPTS_DIR}/local_llexsim.sh"
 REMOTE_SCRIPT_RENDERER="${SCRIPTS_DIR}/remote_render_release_remote_script.py"
+RUNTIME_PROFILE_DIR="${RUNTIME_PROFILE_DIR:-${PROJECT_ROOT}/build/runtime-profile/remote-release}"
+RUNTIME_PROFILE_HELPER="${SCRIPTS_DIR}/runtime_profile_common.sh"
 LOCAL_CONFIG_DIR="${PROJECT_ROOT}/config"
 GRADLEW_BIN="${PROJECT_ROOT}/gradlew"
 LOCAL_FIX_DEMO_HELPER_FILES=(
@@ -33,6 +35,7 @@ LOCAL_FIX_DEMO_HELPER_FILES=(
     "${SCRIPTS_DIR}/fix_demo_client_start.sh"
     "${SCRIPTS_DIR}/fix_demo_client_stop.sh"
     "${SCRIPTS_DIR}/benchmark_common.sh"
+  "${SCRIPTS_DIR}/runtime_profile_common.sh"
     "${SCRIPTS_DIR}/render_benchmark_report.py"
     "${SCRIPTS_DIR}/run_benchmark_droplet.sh"
 )
@@ -59,6 +62,10 @@ GIT_COMMIT="unknown"
 SSH_BIN="${SSH_BIN:-ssh}"
 RSYNC_BIN="${RSYNC_BIN:-rsync}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+SIMULATOR_PROPERTIES_B64=""
+
+# shellcheck source=./runtime_profile_common.sh
+source "${RUNTIME_PROFILE_HELPER}"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
@@ -125,7 +132,7 @@ ${BOLD}Security defaults:${RESET}
   - Web/API binds to 127.0.0.1:${WEB_PORT} by default for Nginx/HTTPS fronting.
   - FIX binds to 127.0.0.1:${FIX_PORT} by default and is not internet-facing.
   - Demo FIX client is available as an on-demand Docker Compose service ('fix-demo-client') and is not started by default.
-  - CPU auto-pinning leaves one vCPU free for the host on multi-core droplets (for example, a 2 vCPU droplet pins the simulator to one core).
+  - Runtime sizing is auto-derived from config/target-droplet.properties unless you override TARGET_DROPLET_CONFIG_FILE.
   - Droplet releases build a ${TARGET_PLATFORM} image by default so an Apple Silicon laptop can deploy safely to an amd64 Ubuntu host.
   - Use ${GREEN}--public-web-port${RESET} and/or ${GREEN}--public-fix-port${RESET} only if you explicitly want public exposure.
 
@@ -388,6 +395,12 @@ rsync_ssh_command() {
     printf 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i %q' "${SSH_KEY_PATH}"
 }
 
+prepare_target_runtime_profile() {
+    runtime_profile_load_env
+    LOCAL_CONFIG_DIR="${RUNTIME_PROFILE_CONFIG_DIR}"
+    SIMULATOR_PROPERTIES_B64="$(base64 < "${RUNTIME_PROFILE_CONFIG_DIR}/simulator.properties" | tr -d '\n')"
+}
+
 sync_remote_config() {
     if [[ "${SYNC_CONFIG}" != true ]]; then
         warn "Skipping config sync; remote config under ${APP_DIR}/config will be preserved."
@@ -644,6 +657,21 @@ build_remote_deploy_script() {
     PUBLIC_WEB_PORT="${PUBLIC_WEB_PORT}" \
     PUBLIC_FIX_PORT="${PUBLIC_FIX_PORT}" \
     TARGET_PLATFORM="${TARGET_PLATFORM}" \
+    TARGET_PROFILE_NAME="${LLEX_TARGET_PROFILE_NAME}" \
+    TARGET_CPU_COUNT="${LLEX_TARGET_CPU_COUNT}" \
+    TARGET_RAM_GB="${LLEX_TARGET_RAM_GB}" \
+    SIMULATOR_CPUS="${LLEX_CPUS}" \
+    SIMULATOR_MEM_LIMIT="${LLEX_MEM_LIMIT}" \
+    SIMULATOR_MEM_RESERVATION="${LLEX_MEM_RESERVATION}" \
+    SIMULATOR_SHM_SIZE="${LLEX_SHM_SIZE}" \
+    SIMULATOR_ARTIO_TMPFS_SIZE="${LLEX_ARTIO_TMPFS_SIZE}" \
+    SIMULATOR_JAVA_XMS="${LLEX_JAVA_XMS}" \
+    SIMULATOR_JAVA_XMX="${LLEX_JAVA_XMX}" \
+    FIX_DEMO_JAVA_XMS="${FIX_DEMO_JAVA_XMS}" \
+    FIX_DEMO_JAVA_XMX="${FIX_DEMO_JAVA_XMX}" \
+    FIX_DEMO_MEM_LIMIT="${FIX_DEMO_MEM_LIMIT}" \
+    FIX_DEMO_MEM_RESERVATION="${FIX_DEMO_MEM_RESERVATION}" \
+    SIMULATOR_PROPERTIES_B64="${SIMULATOR_PROPERTIES_B64}" \
     python3 "${REMOTE_SCRIPT_RENDERER}"
 }
 
@@ -658,6 +686,7 @@ main() {
     parse_args "$@"
     compute_release_id
     validate_inputs
+    prepare_target_runtime_profile
 
     banner "Droplet release"
     info "Project root: ${PROJECT_ROOT}"
@@ -666,6 +695,7 @@ main() {
     info "Image: ${IMAGE_NAME}"
     info "Target image platform: ${TARGET_PLATFORM}"
     info "Remote app dir: ${APP_DIR}"
+    info "Target sizing profile: ${TARGET_DROPLET_CONFIG_FILE}"
     info "Remote ports: web=${WEB_PORT}, fix=${FIX_PORT}"
     if [[ "${PUBLIC_WEB_PORT}" == true ]]; then
         warn "Web/API port will be bound publicly on the droplet."
@@ -678,6 +708,7 @@ main() {
         info "FIX port will bind to localhost only. Use SSH tunneling for local demo clients."
     fi
     info "CPU pinning mode: ${CPUSET_MODE}"
+    runtime_profile_show_summary
     info "Config sync: ${SYNC_CONFIG}"
     info "Skip local build: ${SKIP_BUILD}"
 

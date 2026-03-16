@@ -23,6 +23,8 @@ SCRIPT_NAME="$(basename "$0")"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="${PROJECT_ROOT}/scripts"
 REMOTE_SCRIPT_RENDERER="${SCRIPTS_DIR}/remote_render_release_remote_script.py"
+RUNTIME_PROFILE_DIR="${RUNTIME_PROFILE_DIR:-${PROJECT_ROOT}/build/runtime-profile/remote-retry}"
+RUNTIME_PROFILE_HELPER="${SCRIPTS_DIR}/runtime_profile_common.sh"
 
 DROPLET_HOST=""
 DROPLET_USER=""
@@ -42,6 +44,10 @@ RELEASE_ID=""
 GIT_COMMIT="unknown"
 SSH_BIN="${SSH_BIN:-ssh}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+SIMULATOR_PROPERTIES_B64=""
+
+# shellcheck source=./runtime_profile_common.sh
+source "${RUNTIME_PROFILE_HELPER}"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
@@ -277,6 +283,11 @@ print_command() {
     echo
 }
 
+prepare_target_runtime_profile() {
+    runtime_profile_load_env
+    SIMULATOR_PROPERTIES_B64="$(base64 < "${RUNTIME_PROFILE_CONFIG_DIR}/simulator.properties" | tr -d '\n')"
+}
+
 run_ssh_command() {
     local remote_command="$1"
     local -a cmd=("${SSH_BIN}")
@@ -480,6 +491,21 @@ build_remote_deploy_script() {
     PUBLIC_WEB_PORT="${PUBLIC_WEB_PORT}" \
     PUBLIC_FIX_PORT="${PUBLIC_FIX_PORT}" \
     TARGET_PLATFORM="${TARGET_PLATFORM}" \
+    TARGET_PROFILE_NAME="${LLEX_TARGET_PROFILE_NAME}" \
+    TARGET_CPU_COUNT="${LLEX_TARGET_CPU_COUNT}" \
+    TARGET_RAM_GB="${LLEX_TARGET_RAM_GB}" \
+    SIMULATOR_CPUS="${LLEX_CPUS}" \
+    SIMULATOR_MEM_LIMIT="${LLEX_MEM_LIMIT}" \
+    SIMULATOR_MEM_RESERVATION="${LLEX_MEM_RESERVATION}" \
+    SIMULATOR_SHM_SIZE="${LLEX_SHM_SIZE}" \
+    SIMULATOR_ARTIO_TMPFS_SIZE="${LLEX_ARTIO_TMPFS_SIZE}" \
+    SIMULATOR_JAVA_XMS="${LLEX_JAVA_XMS}" \
+    SIMULATOR_JAVA_XMX="${LLEX_JAVA_XMX}" \
+    FIX_DEMO_JAVA_XMS="${FIX_DEMO_JAVA_XMS}" \
+    FIX_DEMO_JAVA_XMX="${FIX_DEMO_JAVA_XMX}" \
+    FIX_DEMO_MEM_LIMIT="${FIX_DEMO_MEM_LIMIT}" \
+    FIX_DEMO_MEM_RESERVATION="${FIX_DEMO_MEM_RESERVATION}" \
+    SIMULATOR_PROPERTIES_B64="${SIMULATOR_PROPERTIES_B64}" \
     python3 "${REMOTE_SCRIPT_RENDERER}"
 }
 
@@ -494,6 +520,7 @@ main() {
     parse_args "$@"
     compute_release_id
     validate_inputs
+    prepare_target_runtime_profile
 
     banner "Retry image transfer to droplet"
     info "Project root: ${PROJECT_ROOT}"
@@ -502,6 +529,7 @@ main() {
     info "Image: ${IMAGE_NAME}"
     info "Target image platform: ${TARGET_PLATFORM}"
     info "Remote app dir: ${APP_DIR}"
+    info "Target sizing profile: ${TARGET_DROPLET_CONFIG_FILE}"
     info "Remote ports: web=${WEB_PORT}, fix=${FIX_PORT}"
     if [[ "${PUBLIC_WEB_PORT}" == true ]]; then
         warn "Web/API port will be bound publicly on the droplet."
@@ -538,6 +566,7 @@ main() {
     else
         echo "  FIX:          local-only on droplet -> tcp://127.0.0.1:${FIX_PORT}"
     fi
+    runtime_profile_show_summary
 }
 
 main "$@"

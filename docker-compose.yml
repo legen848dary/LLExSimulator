@@ -9,7 +9,7 @@ services:
       - "8080:8080"    # Vert.x Web UI + REST API
       - "9880:9880"    # FIX acceptor — FIX 4.2 / 4.4 / 5.0
     volumes:
-      - ./config:/app/config:ro             # override simulator.properties without rebuild
+      - ${LLEX_CONFIG_DIR:-./config}:/app/config:ro             # override simulator.properties without rebuild
       - ./logs:/app/logs                    # persist logs on host — survives container restarts/removal
     # tmpfs for Artio's SequenceNumberIndexWriter state files.
     # Artio calls writableFile.force() (msync) every ~term-length of FIX messages
@@ -71,8 +71,8 @@ services:
         condition: service_healthy
     entrypoint: ["java"]
     command:
-      - "-Xms128m"
-      - "-Xmx256m"
+      - "-Xms${FIX_DEMO_JAVA_XMS:-128m}"
+      - "-Xmx${FIX_DEMO_JAVA_XMX:-256m}"
       - "-Dlog4j2.contextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector"
       - "-Dlog4j2.asyncLoggerRingBufferSize=262144"
       - "-Dllexsim.log.dir=/app/logs/fix-demo-client"
@@ -97,6 +97,8 @@ services:
       - "${FIX_DEMO_RATE:-500}"
     volumes:
       - ./logs:/app/logs
+    mem_limit: "${FIX_DEMO_MEM_LIMIT:-384m}"
+    mem_reservation: "${FIX_DEMO_MEM_RESERVATION:-192m}"
     restart: "no"
 
 

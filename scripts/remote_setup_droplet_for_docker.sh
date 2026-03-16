@@ -6,11 +6,12 @@
 #   ./scripts/remote_setup_droplet_for_docker.sh <host-or-ip> <ssh-key-path> <ssh-user> [options]
 #
 # What it does on the remote droplet:
-#   1. Installs Docker Engine from Docker's official Ubuntu apt repository
-#   2. Installs useful deployment helpers (git, rsync, jq, curl, ufw, fail2ban)
-#   3. Enables Docker and containerd services
-#   4. Creates the application directory structure used for deployments
-#   5. Optionally enables a basic firewall with SSH only by default
+#   1. Creates a persistent 2 GB swap file when the droplet has no active swap
+#   2. Installs Docker Engine from Docker's official Ubuntu apt repository
+#   3. Installs useful deployment helpers (git, rsync, jq, curl, ufw, fail2ban)
+#   4. Enables Docker and containerd services
+#   5. Creates the application directory structure used for deployments
+#   6. Optionally enables a basic firewall with SSH only by default
 #
 # Required positional arguments:
 #   1. Host / IP
@@ -78,6 +79,7 @@ ${BOLD}Examples:${RESET}
 
 ${BOLD}Notes:${RESET}
   - The script supports either direct ${BOLD}root${RESET} SSH access or a passwordless ${BOLD}sudo${RESET} user.
+  - Fresh droplets without swap receive a persistent 2 GB /swapfile automatically.
   - UFW opens SSH by default.
   - Web/FIX ports remain closed unless you pass ${GREEN}--open-web-port${RESET} and/or ${GREEN}--open-fix-port${RESET}.
   - The remote deployment directory layout created is:
@@ -196,6 +198,8 @@ export DEBIAN_FRONTEND=noninteractive
 APP_DIR='${APP_DIR}'
 WEB_PORT='${WEB_PORT}'
 FIX_PORT='${FIX_PORT}'
+SWAP_FILE='/swapfile'
+SWAP_SIZE_MB='2048'
 ENABLE_FIREWALL='${ENABLE_FIREWALL}'
 ENABLE_FAIL2BAN='${ENABLE_FAIL2BAN}'
 OPEN_WEB_PORT='${OPEN_WEB_PORT}'
@@ -228,6 +232,40 @@ require_root_access() {
     fi
 }
 
+ensure_swap() {
+    if swapon --noheadings --show=NAME 2>/dev/null | grep -q '.'; then
+        log 'Swap already active; leaving existing swap configuration unchanged.'
+        swapon --show
+        return 0
+    fi
+
+    log "No active swap detected; provisioning \${SWAP_SIZE_MB} MB at \${SWAP_FILE}."
+
+    if [[ ! -f "\${SWAP_FILE}" ]]; then
+        if command -v fallocate >/dev/null 2>&1; then
+            if ! run_root fallocate -l "\${SWAP_SIZE_MB}M" "\${SWAP_FILE}"; then
+                log 'fallocate failed; falling back to dd.'
+                run_root dd if=/dev/zero of="\${SWAP_FILE}" bs=1M count="\${SWAP_SIZE_MB}" status=progress
+            fi
+        else
+            run_root dd if=/dev/zero of="\${SWAP_FILE}" bs=1M count="\${SWAP_SIZE_MB}" status=progress
+        fi
+    else
+        log "Swap file already exists at \${SWAP_FILE}; reusing it."
+    fi
+
+    run_root chmod 600 "\${SWAP_FILE}"
+    run_root mkswap "\${SWAP_FILE}" >/dev/null
+    run_root swapon "\${SWAP_FILE}"
+
+    if ! awk '\$1 == "/swapfile" && \$3 == "swap" { found=1 } END { exit(found ? 0 : 1) }' /etc/fstab; then
+        printf '%s\n' '/swapfile none swap sw 0 0' | run_root tee -a /etc/fstab >/dev/null
+    fi
+
+    log 'Swap enabled:'
+    swapon --show
+}
+
 if [[ ! -r /etc/os-release ]]; then
     echo 'This machine does not appear to be Ubuntu/Linux with /etc/os-release.' >&2
     exit 1
@@ -247,6 +285,8 @@ if ! id -u "\${DEPLOY_USER}" >/dev/null 2>&1; then
 fi
 
 DEPLOY_GROUP="\$(id -gn "\${DEPLOY_USER}")"
+
+ensure_swap
 
 run_root apt-get update
 run_root apt-get install -y ca-certificates curl gnupg lsb-release jq git rsync unzip tar ufw python3
@@ -353,6 +393,7 @@ main() {
     info "Project root: ${PROJECT_ROOT}"
     info "Target: $(ssh_target)"
     info "Remote app dir: ${APP_DIR}"
+    info "Swap: create a persistent 2 GB /swapfile when the droplet has no active swap"
     if [[ "${ENABLE_FIREWALL}" == true ]]; then
         info "Firewall: enabled for SSH only by default"
         if [[ "${OPEN_WEB_PORT}" == true ]]; then

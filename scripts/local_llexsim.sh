@@ -23,11 +23,15 @@ set -euo pipefail
 # ── Config ────────────────────────────────────────────────────────────────────
 COMPOSE_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docker-compose.yml"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUNTIME_PROFILE_HELPER="${PROJECT_ROOT}/scripts/runtime_profile_common.sh"
 IMAGE_NAME="llexsimulator:1.0-SNAPSHOT"
 CONTAINER_NAME="llexsimulator"
 WEB_PORT="${WEB_PORT:-8080}"
 FIX_PORT="${FIX_PORT:-9880}"
 LOG_LINES="${LOG_LINES:-100}"
+
+# shellcheck source=./runtime_profile_common.sh
+source "${RUNTIME_PROFILE_HELPER}"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
@@ -61,10 +65,20 @@ require_docker() {
 
 require_compose() {
     require_docker
+    runtime_profile_load_env
     if ! docker compose version &>/dev/null; then
         error "Docker Compose (v2) is required. Install Docker Desktop >= 3.6."
         exit 1
     fi
+}
+
+compose_cmd() {
+    require_compose
+    local -a compose_args=( -f "${COMPOSE_FILE}" )
+    if [[ -f "${RUNTIME_PROFILE_COMPOSE_OVERRIDE_FILE}" ]]; then
+        compose_args+=( -f "${RUNTIME_PROFILE_COMPOSE_OVERRIDE_FILE}" )
+    fi
+    docker compose "${compose_args[@]}" "$@"
 }
 
 image_exists() {
@@ -112,7 +126,7 @@ wait_healthy() {
 cmd_build() {
     banner "Building"
     require_java
-    require_compose
+    runtime_profile_load_env
     cd "${PROJECT_ROOT}"
 
     # ── Step 1: compile + fat JAR on the host ─────────────────────────────────
@@ -133,12 +147,14 @@ cmd_build() {
     # changes between runs is the JAR layer itself.
     if [[ "${1:-}" == "--no-cache" ]]; then
         info "Building Docker image (no cache)..."
-        docker compose --progress plain -f "${COMPOSE_FILE}" build --no-cache
+        compose_cmd --progress plain build --no-cache
     else
         info "Building Docker image..."
-        docker compose --progress plain -f "${COMPOSE_FILE}" build
+        compose_cmd --progress plain build
     fi
     success "Docker image built: ${IMAGE_NAME}"
+    info "Active runtime profile: ${TARGET_DROPLET_CONFIG_FILE}"
+    runtime_profile_show_summary
     docker images "${IMAGE_NAME}" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
 }
 
@@ -162,7 +178,9 @@ cmd_start() {
     mkdir -p "${PROJECT_ROOT}/logs"
 
     info "Starting containers..."
-    docker compose -f "${COMPOSE_FILE}" up -d --force-recreate
+    info "Using target profile from ${TARGET_DROPLET_CONFIG_FILE}"
+    runtime_profile_show_summary
+    compose_cmd up -d --force-recreate
 
     wait_healthy
 
@@ -186,7 +204,7 @@ cmd_stop() {
     fi
 
     info "Sending SIGTERM (graceful shutdown)..."
-    docker compose -f "${COMPOSE_FILE}" stop --timeout 15
+    compose_cmd stop --timeout 15
 
     success "Simulator stopped."
 }
@@ -274,7 +292,7 @@ cmd_clean() {
     cd "${PROJECT_ROOT}"
 
     info "Stopping and removing containers..."
-    docker compose -f "${COMPOSE_FILE}" down --volumes --remove-orphans 2>/dev/null || true
+    compose_cmd down --volumes --remove-orphans 2>/dev/null || true
 
     info "Removing dangling images..."
     docker image prune -f 2>/dev/null || true
@@ -358,6 +376,7 @@ ${BOLD}Environment Variables:${RESET}
   WEB_PORT    Web UI / REST API port  (default: 8080)
   FIX_PORT    FIX acceptor port       (default: 9880)
   LOG_LINES   Lines shown by 'logs'   (default: 100)
+  TARGET_DROPLET_CONFIG_FILE   Sizing profile file (default: ${PROJECT_ROOT}/config/target-droplet.properties)
 
 ${BOLD}Examples:${RESET}
   # First-time setup

@@ -8,6 +8,7 @@ set -euo pipefail
 
 FIX_DEMO_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIX_DEMO_ROOT="${FIX_DEMO_ROOT:-$(cd "${FIX_DEMO_SCRIPTS_DIR}/.." && pwd)}"
+RUNTIME_PROFILE_HELPER="${FIX_DEMO_SCRIPTS_DIR}/runtime_profile_common.sh"
 FIX_DEMO_COMPOSE_FILE="${FIX_DEMO_COMPOSE_FILE:-${FIX_DEMO_ROOT}/docker-compose.yml}"
 FIX_DEMO_SERVICE_NAME="${FIX_DEMO_SERVICE_NAME:-fix-demo-client}"
 FIX_DEMO_SIMULATOR_SERVICE="${FIX_DEMO_SIMULATOR_SERVICE:-llexsimulator}"
@@ -15,6 +16,9 @@ FIX_DEMO_CONTAINER_NAME="${FIX_DEMO_CONTAINER_NAME:-llexsimulator-fix-demo-clien
 FIX_DEMO_DEFAULT_RATE="${FIX_DEMO_RATE:-100}"
 FIX_DEMO_LOGS_DIR="${FIX_DEMO_ROOT}/logs/fix-demo-client"
 FIX_DEMO_LOG_TAIL_LINES="${FIX_DEMO_LOG_TAIL_LINES:-100}"
+
+# shellcheck source=./runtime_profile_common.sh
+source "${RUNTIME_PROFILE_HELPER}"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
@@ -67,7 +71,12 @@ ensure_logs_dir() {
 }
 
 compose_cmd() {
-    docker compose -f "${FIX_DEMO_COMPOSE_FILE}" "$@"
+    runtime_profile_load_env
+    local -a compose_args=( -f "${FIX_DEMO_COMPOSE_FILE}" )
+    if [[ -f "${RUNTIME_PROFILE_COMPOSE_OVERRIDE_FILE}" ]]; then
+        compose_args+=( -f "${RUNTIME_PROFILE_COMPOSE_OVERRIDE_FILE}" )
+    fi
+    docker compose "${compose_args[@]}" "$@"
 }
 
 resolve_rate() {

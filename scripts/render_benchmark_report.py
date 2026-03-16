@@ -73,6 +73,7 @@ def main() -> int:
     health = read_json(artifacts_dir / "health.json")
     stats = read_json(artifacts_dir / "statistics.json")
     docker_stats = read_text(artifacts_dir / "docker-stats.txt")
+    resource_limits = read_text(artifacts_dir / "resource-limits.txt")
     compose_ps = read_text(artifacts_dir / "docker-compose-ps.txt")
     simulator_log = read_text(artifacts_dir / "simulator-log-tail.txt")
     client_log = read_text(artifacts_dir / "demo-client-log-tail.txt")
@@ -222,6 +223,7 @@ def main() -> int:
 
     <div class=\"subgrid\">
       {card('Docker resource snapshot', pre_block(docker_stats), 'green')}
+      {card('Configured container limits', pre_block(resource_limits), 'blue')}
       {card('docker compose ps', pre_block(compose_ps), 'blue')}
       {card('Simulator log tail', pre_block(simulator_log), 'amber')}
       {card('Demo client log tail', pre_block(client_log), 'amber')}

@@ -20,6 +20,21 @@ replacements = {
     "__PUBLIC_WEB_PORT__": shell_single_quote(os.environ["PUBLIC_WEB_PORT"]),
     "__PUBLIC_FIX_PORT__": shell_single_quote(os.environ["PUBLIC_FIX_PORT"]),
     "__TARGET_PLATFORM__": shell_single_quote(os.environ.get("TARGET_PLATFORM", "unknown")),
+    "__TARGET_PROFILE_NAME__": shell_single_quote(os.environ.get("TARGET_PROFILE_NAME", "unknown")),
+    "__TARGET_CPU_COUNT__": shell_single_quote(os.environ.get("TARGET_CPU_COUNT", "")),
+    "__TARGET_RAM_GB__": shell_single_quote(os.environ.get("TARGET_RAM_GB", "")),
+    "__SIMULATOR_CPUS__": shell_single_quote(os.environ["SIMULATOR_CPUS"]),
+    "__SIMULATOR_MEM_LIMIT__": shell_single_quote(os.environ["SIMULATOR_MEM_LIMIT"]),
+    "__SIMULATOR_MEM_RESERVATION__": shell_single_quote(os.environ["SIMULATOR_MEM_RESERVATION"]),
+    "__SIMULATOR_SHM_SIZE__": shell_single_quote(os.environ["SIMULATOR_SHM_SIZE"]),
+    "__SIMULATOR_ARTIO_TMPFS_SIZE__": shell_single_quote(os.environ["SIMULATOR_ARTIO_TMPFS_SIZE"]),
+    "__SIMULATOR_JAVA_XMS__": shell_single_quote(os.environ["SIMULATOR_JAVA_XMS"]),
+    "__SIMULATOR_JAVA_XMX__": shell_single_quote(os.environ["SIMULATOR_JAVA_XMX"]),
+    "__FIX_DEMO_JAVA_XMS__": shell_single_quote(os.environ["FIX_DEMO_JAVA_XMS"]),
+    "__FIX_DEMO_JAVA_XMX__": shell_single_quote(os.environ["FIX_DEMO_JAVA_XMX"]),
+    "__FIX_DEMO_MEM_LIMIT__": shell_single_quote(os.environ["FIX_DEMO_MEM_LIMIT"]),
+    "__FIX_DEMO_MEM_RESERVATION__": shell_single_quote(os.environ["FIX_DEMO_MEM_RESERVATION"]),
+    "__SIMULATOR_PROPERTIES_B64__": shell_single_quote(os.environ["SIMULATOR_PROPERTIES_B64"]),
 }
 
 template = dedent(r'''
@@ -37,6 +52,21 @@ SOURCE_GIT_COMMIT='__SOURCE_GIT_COMMIT__'
 PUBLIC_WEB_PORT='__PUBLIC_WEB_PORT__'
 PUBLIC_FIX_PORT='__PUBLIC_FIX_PORT__'
 TARGET_PLATFORM='__TARGET_PLATFORM__'
+TARGET_PROFILE_NAME='__TARGET_PROFILE_NAME__'
+TARGET_CPU_COUNT='__TARGET_CPU_COUNT__'
+TARGET_RAM_GB='__TARGET_RAM_GB__'
+SIMULATOR_CPUS='__SIMULATOR_CPUS__'
+SIMULATOR_MEM_LIMIT='__SIMULATOR_MEM_LIMIT__'
+SIMULATOR_MEM_RESERVATION='__SIMULATOR_MEM_RESERVATION__'
+SIMULATOR_SHM_SIZE='__SIMULATOR_SHM_SIZE__'
+SIMULATOR_ARTIO_TMPFS_SIZE='__SIMULATOR_ARTIO_TMPFS_SIZE__'
+SIMULATOR_JAVA_XMS='__SIMULATOR_JAVA_XMS__'
+SIMULATOR_JAVA_XMX='__SIMULATOR_JAVA_XMX__'
+FIX_DEMO_JAVA_XMS='__FIX_DEMO_JAVA_XMS__'
+FIX_DEMO_JAVA_XMX='__FIX_DEMO_JAVA_XMX__'
+FIX_DEMO_MEM_LIMIT='__FIX_DEMO_MEM_LIMIT__'
+FIX_DEMO_MEM_RESERVATION='__FIX_DEMO_MEM_RESERVATION__'
+SIMULATOR_PROPERTIES_B64='__SIMULATOR_PROPERTIES_B64__'
 
 log() {
     printf '[remote] %s\n' "$*"
@@ -74,21 +104,25 @@ wait_healthy() {
 mkdir -p "${APP_DIR}" "${APP_DIR}/config" "${APP_DIR}/logs" "${APP_DIR}/releases"
 release_dir="${APP_DIR}/releases/${RELEASE_ID}"
 mkdir -p "${release_dir}"
+config_file="${APP_DIR}/config/simulator.properties"
+
+printf '%s' "${SIMULATOR_PROPERTIES_B64}" | base64 -d > "${config_file}"
 
 cpuset_line=''
 case "${CPUSET_MODE}" in
     auto)
         cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 1)"
-        if [[ "${cpu_count}" =~ ^[0-9]+$ ]]; then
-            if [[ "${cpu_count}" -ge 2 ]]; then
-                reserved_cores=$((cpu_count - 1))
-                if [[ "${reserved_cores}" -gt 4 ]]; then
-                    reserved_cores=4
-                fi
-                cpuset_line="    cpuset: \"0-$((reserved_cores - 1))\""
-            else
-                cpuset_line='    cpuset: "0"'
-            fi
+        desired_cpu_count="${TARGET_CPU_COUNT}"
+        if ! [[ "${desired_cpu_count}" =~ ^[0-9]+$ ]] || [[ "${desired_cpu_count}" -le 0 ]]; then
+            desired_cpu_count="${cpu_count}"
+        fi
+        if [[ "${cpu_count}" =~ ^[0-9]+$ ]] && [[ "${cpu_count}" -gt 0 ]] && [[ "${desired_cpu_count}" -gt "${cpu_count}" ]]; then
+            desired_cpu_count="${cpu_count}"
+        fi
+        if [[ "${desired_cpu_count}" =~ ^[0-9]+$ ]] && [[ "${desired_cpu_count}" -gt 1 ]]; then
+            cpuset_line="    cpuset: \"0-$((desired_cpu_count - 1))\""
+        else
+            cpuset_line='    cpuset: "0"'
         fi
         ;;
     none|'')
@@ -124,12 +158,12 @@ cat <<EOF_COMPOSE_BODY
       - ${APP_DIR}/config:/app/config:ro
       - ${APP_DIR}/logs:/app/logs
     tmpfs:
-      - /tmp/artio-state:size=64m,mode=1777
+      - /tmp/artio-state:size=${SIMULATOR_ARTIO_TMPFS_SIZE},mode=1777
     environment:
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
-        -Xms1g -Xmx1g
+        -Xms${SIMULATOR_JAVA_XMS} -Xmx${SIMULATOR_JAVA_XMX}
         -XX:+AlwaysPreTouch
         -XX:+DisableExplicitGC
         -XX:+PerfDisableSharedMem
@@ -142,7 +176,7 @@ cat <<EOF_COMPOSE_BODY
         --add-opens java.base/sun.nio.ch=ALL-UNNAMED
         --add-opens java.base/java.nio=ALL-UNNAMED
         --add-opens java.base/java.lang=ALL-UNNAMED
-    shm_size: "512mb"
+    shm_size: "${SIMULATOR_SHM_SIZE}"
     ulimits:
       memlock:
         soft: -1
@@ -151,12 +185,13 @@ cat <<EOF_COMPOSE_BODY
         soft: 65536
         hard: 65536
 EOF_COMPOSE_BODY
+printf '    cpus: %s\n' "${SIMULATOR_CPUS}"
 if [[ -n "${cpuset_line}" ]]; then
     printf '%s\n' "${cpuset_line}"
 fi
 cat <<EOF_COMPOSE_TAIL
-    mem_limit: 2g
-    mem_reservation: 1g
+    mem_limit: ${SIMULATOR_MEM_LIMIT}
+    mem_reservation: ${SIMULATOR_MEM_RESERVATION}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/api/health"]
@@ -174,8 +209,8 @@ cat <<EOF_COMPOSE_TAIL
         condition: service_healthy
     entrypoint: ["java"]
     command:
-      - "-Xms128m"
-      - "-Xmx256m"
+      - "-Xms${FIX_DEMO_JAVA_XMS}"
+      - "-Xmx${FIX_DEMO_JAVA_XMX}"
       - "-Dlog4j2.contextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector"
       - "-Dlog4j2.asyncLoggerRingBufferSize=262144"
       - "-Dllexsim.log.dir=/app/logs/fix-demo-client"
@@ -200,6 +235,8 @@ cat <<EOF_COMPOSE_TAIL
       - "\${FIX_DEMO_RATE:-100}"
     volumes:
       - ${APP_DIR}/logs:/app/logs
+    mem_limit: ${FIX_DEMO_MEM_LIMIT}
+    mem_reservation: ${FIX_DEMO_MEM_RESERVATION}
     restart: "no"
 EOF_COMPOSE_TAIL
 } > "${compose_file}"
@@ -221,6 +258,18 @@ public_fix_port=${PUBLIC_FIX_PORT}
 target_platform=${TARGET_PLATFORM}
 app_dir=${APP_DIR}
 cpuset=${CPUSET_MODE}
+target_profile_name=${TARGET_PROFILE_NAME}
+target_cpu_count=${TARGET_CPU_COUNT}
+target_ram_gb=${TARGET_RAM_GB}
+simulator_cpus=${SIMULATOR_CPUS}
+simulator_mem_limit=${SIMULATOR_MEM_LIMIT}
+simulator_mem_reservation=${SIMULATOR_MEM_RESERVATION}
+simulator_heap_xms=${SIMULATOR_JAVA_XMS}
+simulator_heap_xmx=${SIMULATOR_JAVA_XMX}
+fix_demo_heap_xms=${FIX_DEMO_JAVA_XMS}
+fix_demo_heap_xmx=${FIX_DEMO_JAVA_XMX}
+fix_demo_mem_limit=${FIX_DEMO_MEM_LIMIT}
+fix_demo_mem_reservation=${FIX_DEMO_MEM_RESERVATION}
 EOF_MANIFEST
 
 log 'Starting/recreating remote service with docker compose...'

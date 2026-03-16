@@ -10,7 +10,7 @@ BENCHMARK_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${BENCHMARK_SCRIPTS_DIR}/fix_demo_client_common.sh"
 
 BENCHMARK_INVOCATION="${BENCHMARK_INVOCATION:-./scripts/run_benchmark_local.sh}"
-BENCHMARK_CONFIG_FILE="${BENCHMARK_CONFIG_FILE:-${FIX_DEMO_ROOT}/config/simulator.properties}"
+BENCHMARK_CONFIG_FILE="${BENCHMARK_CONFIG_FILE:-${RUNTIME_PROFILE_CONFIG_DIR}/simulator.properties}"
 BENCHMARK_RATE_DEFAULT="${BENCHMARK_RATE:-500}"
 BENCHMARK_DURATION_DEFAULT="${BENCHMARK_DURATION_SEC:-30}"
 BENCHMARK_WEB_PORT_DEFAULT="${WEB_PORT:-8080}"
@@ -122,6 +122,8 @@ validate_positive_integer() {
 }
 
 ensure_benchmark_dependencies() {
+    runtime_profile_load_env
+    BENCHMARK_CONFIG_FILE="${BENCHMARK_CONFIG_FILE:-${RUNTIME_PROFILE_CONFIG_DIR}/simulator.properties}"
     require_docker_compose
     ensure_compose_file
 
@@ -250,13 +252,28 @@ duration_sec=${BENCHMARK_DURATION_SEC}
 web_port=${BENCHMARK_WEB_PORT}
 config_file=${BENCHMARK_CONFIG_FILE}
 compose_file=${FIX_DEMO_COMPOSE_FILE}
+compose_override_file=${RUNTIME_PROFILE_COMPOSE_OVERRIDE_FILE}
 simulator_container=${BENCHMARK_SIMULATOR_CONTAINER}
 demo_client_container=${FIX_DEMO_CONTAINER_NAME}
 simulator_was_running=${BENCHMARK_SIMULATOR_WAS_RUNNING}
 benchmark_mode_changed=${BENCHMARK_CONFIG_CHANGED}
+target_profile_name=${LLEX_TARGET_PROFILE_NAME:-unknown}
+target_cpu_count=${LLEX_TARGET_CPU_COUNT:-unknown}
+target_ram_gb=${LLEX_TARGET_RAM_GB:-unknown}
 run_id=${BENCHMARK_RUN_ID}
 started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
+}
+
+capture_benchmark_resource_limits() {
+    docker inspect "${BENCHMARK_SIMULATOR_CONTAINER}" --format '
+container={{.Name}}
+cpuset={{.HostConfig.CpusetCpus}}
+nano_cpus={{.HostConfig.NanoCpus}}
+memory_bytes={{.HostConfig.Memory}}
+memory_reservation_bytes={{.HostConfig.MemoryReservation}}
+shm_size_bytes={{.HostConfig.ShmSize}}
+' | sed '/^$/d' > "${BENCHMARK_ARTIFACTS_DIR}/resource-limits.txt"
 }
 
 capture_benchmark_logs() {
@@ -318,6 +335,11 @@ PY
 
 print_benchmark_docker_stats() {
     echo ""
+    if [[ -f "${BENCHMARK_ARTIFACTS_DIR}/resource-limits.txt" ]]; then
+        echo -e "${BOLD}Configured container limits:${RESET}"
+        cat "${BENCHMARK_ARTIFACTS_DIR}/resource-limits.txt"
+        echo ""
+    fi
     echo -e "${BOLD}Docker resource snapshot:${RESET}"
     cat "${BENCHMARK_ARTIFACTS_DIR}/docker-stats.txt"
 }
@@ -422,6 +444,7 @@ run_benchmark_flow() {
     sleep "${BENCHMARK_DURATION_SEC}"
 
     capture_benchmark_statistics
+    capture_benchmark_resource_limits
     capture_benchmark_docker_stats
     capture_benchmark_logs
     render_benchmark_report

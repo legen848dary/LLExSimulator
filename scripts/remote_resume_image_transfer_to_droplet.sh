@@ -24,6 +24,8 @@ SCRIPT_NAME="$(basename "$0")"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="${PROJECT_ROOT}/scripts"
 REMOTE_SCRIPT_RENDERER="${SCRIPTS_DIR}/remote_render_release_remote_script.py"
+RUNTIME_PROFILE_DIR="${RUNTIME_PROFILE_DIR:-${PROJECT_ROOT}/build/runtime-profile/remote-resume}"
+RUNTIME_PROFILE_HELPER="${SCRIPTS_DIR}/runtime_profile_common.sh"
 
 DROPLET_HOST=""
 DROPLET_USER=""
@@ -55,6 +57,10 @@ CURRENT_IMAGE_PLATFORM=""
 CURRENT_IMAGE_SIZE_BYTES=""
 LOCAL_ARCHIVE_METADATA_PATH=""
 REMOTE_ARCHIVE_DIR=""
+SIMULATOR_PROPERTIES_B64=""
+
+# shellcheck source=./runtime_profile_common.sh
+source "${RUNTIME_PROFILE_HELPER}"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
@@ -355,6 +361,11 @@ finalize_archive_paths() {
     REMOTE_ARCHIVE_DIR="$(dirname "${REMOTE_ARCHIVE_PATH}")"
 }
 
+prepare_target_runtime_profile() {
+    runtime_profile_load_env
+    SIMULATOR_PROPERTIES_B64="$(base64 < "${RUNTIME_PROFILE_CONFIG_DIR}/simulator.properties" | tr -d '\n')"
+}
+
 verify_local_image_platform() {
     if [[ "${CURRENT_IMAGE_PLATFORM}" != "${TARGET_PLATFORM}" ]]; then
         error "Local image platform mismatch: expected ${TARGET_PLATFORM}, got ${CURRENT_IMAGE_PLATFORM}"
@@ -625,6 +636,21 @@ build_remote_deploy_script() {
     PUBLIC_WEB_PORT="${PUBLIC_WEB_PORT}" \
     PUBLIC_FIX_PORT="${PUBLIC_FIX_PORT}" \
     TARGET_PLATFORM="${TARGET_PLATFORM}" \
+    TARGET_PROFILE_NAME="${LLEX_TARGET_PROFILE_NAME}" \
+    TARGET_CPU_COUNT="${LLEX_TARGET_CPU_COUNT}" \
+    TARGET_RAM_GB="${LLEX_TARGET_RAM_GB}" \
+    SIMULATOR_CPUS="${LLEX_CPUS}" \
+    SIMULATOR_MEM_LIMIT="${LLEX_MEM_LIMIT}" \
+    SIMULATOR_MEM_RESERVATION="${LLEX_MEM_RESERVATION}" \
+    SIMULATOR_SHM_SIZE="${LLEX_SHM_SIZE}" \
+    SIMULATOR_ARTIO_TMPFS_SIZE="${LLEX_ARTIO_TMPFS_SIZE}" \
+    SIMULATOR_JAVA_XMS="${LLEX_JAVA_XMS}" \
+    SIMULATOR_JAVA_XMX="${LLEX_JAVA_XMX}" \
+    FIX_DEMO_JAVA_XMS="${FIX_DEMO_JAVA_XMS}" \
+    FIX_DEMO_JAVA_XMX="${FIX_DEMO_JAVA_XMX}" \
+    FIX_DEMO_MEM_LIMIT="${FIX_DEMO_MEM_LIMIT}" \
+    FIX_DEMO_MEM_RESERVATION="${FIX_DEMO_MEM_RESERVATION}" \
+    SIMULATOR_PROPERTIES_B64="${SIMULATOR_PROPERTIES_B64}" \
     python3 "${REMOTE_SCRIPT_RENDERER}"
 }
 
@@ -649,6 +675,7 @@ main() {
     parse_args "$@"
     compute_release_id
     validate_inputs
+    prepare_target_runtime_profile
     inspect_local_image_metadata
     finalize_archive_paths
     verify_local_image_platform
@@ -663,6 +690,7 @@ main() {
     info "Local archive: ${LOCAL_ARCHIVE_PATH}"
     info "Remote archive: ${REMOTE_ARCHIVE_PATH}"
     info "Remote app dir: ${APP_DIR}"
+    info "Target sizing profile: ${TARGET_DROPLET_CONFIG_FILE}"
     info "Remote ports: web=${WEB_PORT}, fix=${FIX_PORT}"
     if [[ "${PUBLIC_WEB_PORT}" == true ]]; then
         warn "Web/API port will be bound publicly on the droplet."
@@ -675,6 +703,7 @@ main() {
         info "FIX port will bind to localhost only."
     fi
     info "CPU pinning mode: ${CPUSET_MODE}"
+    runtime_profile_show_summary
     if [[ "${KEEP_REMOTE_ARCHIVE}" == true ]]; then
         info "Remote archive will be kept after docker load."
     fi

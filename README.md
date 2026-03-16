@@ -251,6 +251,47 @@ All Docker lifecycle operations are handled by a single script:
 ./scripts/local_llexsim.sh <command>
 ```
 
+### Target Droplet Sizing Profile
+
+The local build/start flow and the remote release/retry/resume scripts now read
+`config/target-droplet.properties` and derive a runtime profile automatically.
+
+Edit:
+
+```ini
+target.cpu.count=2
+target.ram.gb=4
+```
+
+From that file, the scripts generate:
+
+- simulator JVM heap (`-Xms` / `-Xmx`)
+- simulator Docker CPU + memory limits
+- demo FIX client heap + memory limits
+- tuned `build/runtime-profile/config/simulator.properties`
+- tuned local `build/runtime-profile/docker-compose.override.yml`
+
+Generated artifacts live under `build/runtime-profile/` and are applied automatically by:
+
+- `./scripts/local_llexsim.sh build|start|rebuild`
+- `./scripts/run_benchmark_local.sh`
+- `./scripts/remote_release_to_droplet.sh`
+- `./scripts/remote_retry_image_transfer_to_droplet.sh`
+- `./scripts/remote_resume_image_transfer_to_droplet.sh`
+
+Quick example:
+
+```bash
+# choose the target machine size
+vi config/target-droplet.properties
+
+# build/start locally with the derived profile
+./scripts/local_llexsim.sh start
+
+# deploy the same derived profile to a droplet
+./scripts/remote_release_to_droplet.sh <host> <ssh-key> <ssh-user>
+```
+
 ### Management Script Reference
 
 | Command | Description |
@@ -305,7 +346,7 @@ LOG_LINES=500 ./scripts/local_llexsim.sh logs
 
 This repository includes three helper scripts for a brand-new Ubuntu droplet:
 
-- [`scripts/remote_setup_droplet_for_docker.sh`](scripts/remote_setup_droplet_for_docker.sh) — install Docker and baseline deployment tooling
+- [`scripts/remote_setup_droplet_for_docker.sh`](scripts/remote_setup_droplet_for_docker.sh) — install Docker, baseline deployment tooling, and conditional swap on fresh droplets
 - [`scripts/remote_release_to_droplet.sh`](scripts/remote_release_to_droplet.sh) — rebuild locally and deploy the Docker image remotely
 - [`scripts/remote_setup_https_for_hostname.sh`](scripts/remote_setup_https_for_hostname.sh) — configure Nginx + Certbot for a public hostname
 
@@ -325,11 +366,14 @@ Run this once on a fresh Ubuntu droplet:
 
 What it does:
 
+- creates a persistent `2 GB` `/swapfile` when the droplet has no active swap already
 - installs Docker Engine from Docker's official Ubuntu repository
 - installs deployment helpers such as `git`, `rsync`, `curl`, `jq`, `python3`, `ufw`, and `fail2ban`
 - enables `docker` and `containerd`
 - grants Docker access to the SSH user used for bootstrap (for example `root`, `ubuntu`, or `deploy`)
 - creates `/opt/llexsimulator/{config,logs,releases,scripts}` and assigns ownership to that SSH user
+
+If swap is created, the script enables it immediately and persists it via `/etc/fstab`. If the droplet already has active swap, the script leaves the existing swap configuration unchanged.
 
 The remote setup, release, and HTTPS scripts support either:
 
@@ -374,6 +418,9 @@ From your local machine, this is the shortest repeatable path from an empty drop
 ```bash
 # 1. Bootstrap the droplet for Docker (root or a passwordless sudo user)
 ./scripts/remote_setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root
+
+# Optional check: confirm the bootstrap created swap on a fresh droplet
+ssh -i ~/.ssh/<your-private-key> root@203.0.113.10 'swapon --show && grep -F "/swapfile none swap sw 0 0" /etc/fstab | cat'
 
 # 2. Build locally and deploy the simulator to the droplet
 ./scripts/remote_release_to_droplet.sh 203.0.113.10 ~/.ssh/<your-private-key> root
@@ -567,7 +614,7 @@ Because the demo client runs in the same Compose network as the simulator, it co
 
 #### Step 7 — Useful dry runs
 
-All droplet scripts support a dry-run mode so you can inspect the remote commands before executing them:
+All droplet scripts support a dry-run mode so you can inspect the remote commands before executing them, including the conditional swap setup in the Docker bootstrap script:
 
 ```bash
 ./scripts/remote_setup_droplet_for_docker.sh 203.0.113.10 ~/.ssh/<your-private-key> root --dry-run
@@ -1050,7 +1097,7 @@ LLExSimulator/
 │   ├── local_clean_ledgers.sh          # Removes FIX/Aeron ledger/state directories only
 │   ├── remote_release_to_droplet.sh    # Build locally and deploy remotely to a droplet
 │   ├── remote_render_release_remote_script.py # Generates the remote deploy shell script
-│   ├── remote_setup_droplet_for_docker.sh # Bootstrap a droplet with Docker
+│   ├── remote_setup_droplet_for_docker.sh # Bootstrap a droplet with Docker and auto-create swap if needed
 │   └── remote_setup_https_for_hostname.sh # Configure Nginx + Certbot on the droplet
 ├── config/
 │   └── simulator.properties            # Override config (mounted read-only into container)
